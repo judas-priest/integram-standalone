@@ -1,0 +1,33 @@
+{
+  "name": "@integram/common",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Shared types, interfaces, utilities, and constants for Integram services",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./types": "./types/index.js",
+    "./utils": "./utils/index.js",
+    "./constants": "./constants/index.js",
+    "./errors": "./errors/index.js"
+  },
+  "files": [
+    "index.js",
+    "types/",
+    "utils/",
+    "constants/",
+    "errors/"
+  ],
+  "keywords": [
+    "integram",
+    "common",
+    "types",
+    "utilities",
+    "constants"
+  ],
+  "author": "Integram Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

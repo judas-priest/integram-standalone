@@ -1,0 +1,35 @@
+{
+  "name": "@integram/database",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Database abstraction layer for Integram services - wraps MySQL operations with logging and metrics",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./connection": "./connection.js",
+    "./query-builder": "./query-builder.js"
+  },
+  "files": [
+    "index.js",
+    "connection.js",
+    "query-builder.js"
+  ],
+  "keywords": [
+    "integram",
+    "database",
+    "mysql",
+    "query-builder",
+    "abstraction"
+  ],
+  "dependencies": {
+    "@integram/common": "^1.0.0"
+  },
+  "peerDependencies": {
+    "mysql2": "^3.0.0"
+  },
+  "author": "Integram Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "@integram/logger",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Unified logging infrastructure for Integram services - structured logging with support for multiple output formats",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./formatters": "./formatters/index.js"
+  },
+  "files": [
+    "index.js",
+    "formatters/"
+  ],
+  "keywords": [
+    "integram",
+    "logger",
+    "logging",
+    "structured-logging",
+    "tracing"
+  ],
+  "dependencies": {
+    "@integram/common": "^1.0.0"
+  },
+  "author": "Integram Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

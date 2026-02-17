@@ -1,0 +1,38 @@
+{
+  "name": "@integram/auth-service",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Authentication service for Integram - handles user authentication, JWT tokens, OAuth, and permissions",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "lint": "eslint src --fix"
+  },
+  "keywords": [
+    "integram",
+    "auth",
+    "authentication",
+    "jwt",
+    "oauth"
+  ],
+  "dependencies": {
+    "@integram/common": "^1.0.0",
+    "@integram/database": "^1.0.0",
+    "@integram/logger": "^1.0.0",
+    "express": "^4.21.0",
+    "jsonwebtoken": "^9.0.0",
+    "bcrypt": "^5.1.0"
+  },
+  "devDependencies": {
+    "vitest": "^1.0.0",
+    "supertest": "^6.3.0"
+  },
+  "author": "Integram Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
