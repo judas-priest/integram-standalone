@@ -44,3 +44,10 @@ dist-ssr
 # Temporary files
 *.tmp
 *.temp
+
+# Runtime data directories
+backend/monolith/data/
+**/data/secrets/
+**/data/.master_key
+**/session_registry.json
+**/token_registry.json
