@@ -1,8 +1,8 @@
 {
   "name": "@integram/auth-service",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
-  "description": "Authentication service for Integram - handles user authentication, JWT tokens, OAuth, and permissions",
+  "description": "Authentication service for Integram - handles user authentication, JWT tokens, OAuth, and permissions. Phase 2 with full controller/route architecture.",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
@@ -16,13 +16,16 @@
     "auth",
     "authentication",
     "jwt",
-    "oauth"
+    "oauth",
+    "php-compatible"
   ],
   "dependencies": {
     "@integram/common": "^1.0.0",
     "@integram/database": "^1.0.0",
     "@integram/logger": "^1.0.0",
     "express": "^4.21.0",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
     "jsonwebtoken": "^9.0.0",
     "bcrypt": "^5.1.0"
   },
