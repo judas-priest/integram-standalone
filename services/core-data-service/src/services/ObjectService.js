@@ -436,6 +436,55 @@ export class ObjectService {
   }
 
   /**
+   * Set a specific ID for an object.
+   * Maps to PHP: _m_id action
+   * This operation updates the object's ID and all references to it.
+   *
+   * @param {string} database - Database name
+   * @param {number} currentId - Current object ID
+   * @param {number} newId - New ID to set
+   * @returns {Promise<boolean>} Success status
+   * @throws {ValidationError} If new ID is invalid or occupied
+   */
+  async setId(database, currentId, newId) {
+    const db = this.validation.validateDatabase(database);
+    const objId = this.validation.validateId(currentId);
+    const newObjId = this.validation.validateId(newId);
+
+    // Check if the new ID is occupied or belongs to metadata (up=0)
+    const checkSql = `SELECT id, up FROM ${db} WHERE id = ? OR (id = ? AND up = 0)`;
+    const checkResult = await this.db.execSql(checkSql, [newObjId, objId], 'ObjectService.setId.check');
+
+    if (checkResult.rows && checkResult.rows.length > 0) {
+      for (const row of checkResult.rows) {
+        if (row.id === newObjId) {
+          throw new ValidationError('The new ID is already occupied');
+        }
+        if (row.id === objId && row.up === 0) {
+          throw new ValidationError('Cannot change ID of metadata object');
+        }
+      }
+    }
+
+    // Update the object ID and all references to it
+    // 1. Update the object's own ID
+    const updateIdSql = `UPDATE ${db} SET id = ? WHERE id = ?`;
+    await this.db.execSql(updateIdSql, [newObjId, objId], 'ObjectService.setId.updateId');
+
+    // 2. Update parent references (up field)
+    const updateUpSql = `UPDATE ${db} SET up = ? WHERE up = ?`;
+    await this.db.execSql(updateUpSql, [newObjId, objId], 'ObjectService.setId.updateUp');
+
+    // 3. Update type references (t field)
+    const updateTypeSql = `UPDATE ${db} SET t = ? WHERE t = ?`;
+    await this.db.execSql(updateTypeSql, [newObjId, objId], 'ObjectService.setId.updateType');
+
+    this.logger.info('Object ID changed', { database: db, oldId: objId, newId: newObjId });
+
+    return true;
+  }
+
+  /**
    * Move object to a new parent.
    *
    * @param {string} database - Database name

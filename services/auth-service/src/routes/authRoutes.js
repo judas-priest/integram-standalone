@@ -105,6 +105,32 @@ export function createAuthRoutes(options) {
   router.post('/:db/checkcode', authController.checkCode);
 
   // ============================================================================
+  // JWT Authentication (Legacy PHP Compatibility)
+  // Maps to PHP: case "jwt" in index.php
+  // ============================================================================
+
+  /**
+   * POST /:db/jwt - JWT-based authentication
+   * Maps to PHP: case "jwt" in index.php (lines 7608-7616)
+   * Legacy compatible: jwt=<jwt_token>
+   * Verifies JWT and authenticates the user
+   */
+  router.post('/:db/jwt', authController.jwtAuth);
+
+  /**
+   * POST /:db/confirm - Password confirmation
+   * Maps to PHP: case "confirm" in index.php (lines 7704-7713)
+   * Legacy compatible: u=email&o=old_password_hash&p=new_password_hash
+   * Confirms password change and logs in the user
+   */
+  router.post('/:db/confirm', authController.confirmPassword);
+
+  /**
+   * GET /:db/confirm - Password confirmation (GET version for legacy compatibility)
+   */
+  router.get('/:db/confirm', authController.confirmPassword);
+
+  // ============================================================================
   // Protected Routes (authentication required)
   // ============================================================================
 

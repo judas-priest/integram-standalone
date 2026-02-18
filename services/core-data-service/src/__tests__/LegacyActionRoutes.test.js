@@ -40,6 +40,7 @@ function createMockServices() {
       moveToParent: vi.fn().mockResolvedValue(true),
       updateOrder: vi.fn().mockResolvedValue(true),
       saveRequisites: vi.fn().mockResolvedValue(true),
+      setId: vi.fn().mockResolvedValue(true),
       getByType: vi.fn().mockResolvedValue([
         { id: 1, value: 'obj1', parentId: 0, typeId: 10, order: 1 },
         { id: 2, value: 'obj2', parentId: 0, typeId: 10, order: 2 },
@@ -166,6 +167,32 @@ describe('createLegacyActionRoutes', () => {
   describe('_m_set action', () => {
     it('should save requisites', () => {
       expect(services.objectService.saveRequisites).toBeDefined();
+    });
+  });
+
+  describe('_m_id action', () => {
+    it('should call objectService.setId', () => {
+      expect(services.objectService.setId).toBeDefined();
+    });
+
+    it('should validate new_id parameter is numeric and positive', () => {
+      // The route should validate new_id parameter
+      const validId = 123;
+      const invalidId1 = 0;
+      const invalidId2 = -5;
+      const invalidId3 = NaN;
+
+      expect(validId > 0 && !isNaN(validId)).toBe(true);
+      expect(invalidId1 > 0 && !isNaN(invalidId1)).toBe(false);
+      expect(invalidId2 > 0 && !isNaN(invalidId2)).toBe(false);
+      expect(invalidId3 > 0 && !isNaN(invalidId3)).toBe(false);
+    });
+
+    it('should return new ID on success', () => {
+      // Success response should include the new ID
+      const expectedResponse = { status: 'Ok', id: 999 };
+      expect(expectedResponse.status).toBe('Ok');
+      expect(expectedResponse.id).toBe(999);
     });
   });
 

@@ -10,9 +10,13 @@ import { AuthController } from '../src/controllers/AuthController.js';
 // Mock auth service
 const createMockAuthService = () => ({
   authenticate: vi.fn(),
+  authenticateWithJWT: vi.fn(),
+  confirmPassword: vi.fn(),
   register: vi.fn(),
   validateToken: vi.fn(),
   logout: vi.fn(),
+  getOneTimeCode: vi.fn(),
+  verifyOneTimeCode: vi.fn(),
   jwt: {
     refreshToken: vi.fn(),
   },
@@ -334,6 +338,141 @@ describe('AuthController', () => {
         success: true,
         token: 'new-token',
       }));
+    });
+  });
+
+  describe('jwtAuth', () => {
+    it('should authenticate with external JWT token', async () => {
+      const req = createMockRequest({
+        body: { jwt: 'external-jwt-token' },
+      });
+      const res = createMockResponse();
+
+      authService.authenticateWithJWT.mockResolvedValue({
+        success: true,
+        token: 'session-token',
+        xsrf: 'xsrf-token',
+        user: { id: 1, username: 'testuser' },
+      });
+
+      await controller.jwtAuth(req, res);
+
+      expect(authService.authenticateWithJWT).toHaveBeenCalledWith('test', 'external-jwt-token');
+      expect(res.cookie).toHaveBeenCalledWith('test', 'session-token', expect.any(Object));
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+        success: true,
+        token: 'session-token',
+      }));
+    });
+
+    it('should return 400 for missing JWT token', async () => {
+      const req = createMockRequest({
+        body: {},
+      });
+      const res = createMockResponse();
+
+      await controller.jwtAuth(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+        code: 'MISSING_JWT',
+      }));
+    });
+
+    it('should handle JWT verification failure', async () => {
+      const req = createMockRequest({
+        body: { jwt: 'invalid-jwt' },
+      });
+      const res = createMockResponse();
+
+      authService.authenticateWithJWT.mockRejectedValue(new Error('JWT verification failed'));
+
+      await controller.jwtAuth(req, res);
+
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+        error: 'JWT verification failed',
+      }));
+    });
+  });
+
+  describe('confirmPassword', () => {
+    it('should confirm password change and login user', async () => {
+      const req = createMockRequest({
+        body: { u: 'user@test.com', o: 'old-hash', p: 'new-hash' },
+      });
+      const res = createMockResponse();
+
+      authService.confirmPassword.mockResolvedValue({
+        success: true,
+        token: 'new-token',
+        xsrf: 'new-xsrf',
+      });
+
+      await controller.confirmPassword(req, res);
+
+      expect(authService.confirmPassword).toHaveBeenCalledWith(
+        'test',
+        'user@test.com',
+        'old-hash',
+        'new-hash'
+      );
+      expect(res.cookie).toHaveBeenCalledWith('test', 'new-token', expect.any(Object));
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+        success: true,
+        token: 'new-token',
+      }));
+    });
+
+    it('should return 400 for missing parameters', async () => {
+      const req = createMockRequest({
+        body: { u: 'user@test.com' }, // Missing o and p
+      });
+      const res = createMockResponse();
+
+      await controller.confirmPassword(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+        code: 'MISSING_PARAMS',
+      }));
+    });
+
+    it('should handle obsolete password (old password does not match)', async () => {
+      const req = createMockRequest({
+        body: { u: 'user@test.com', o: 'wrong-hash', p: 'new-hash' },
+      });
+      const res = createMockResponse();
+
+      authService.confirmPassword.mockResolvedValue(null);
+
+      await controller.confirmPassword(req, res);
+
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+        error: 'obsolete',
+      }));
+    });
+
+    it('should support query parameters', async () => {
+      const req = createMockRequest({
+        query: { u: 'user@test.com', o: 'old-hash', p: 'new-hash' },
+        body: {},
+      });
+      const res = createMockResponse();
+
+      authService.confirmPassword.mockResolvedValue({
+        success: true,
+        token: 'new-token',
+        xsrf: 'new-xsrf',
+      });
+
+      await controller.confirmPassword(req, res);
+
+      expect(authService.confirmPassword).toHaveBeenCalledWith(
+        'test',
+        'user@test.com',
+        'old-hash',
+        'new-hash'
+      );
     });
   });
 });

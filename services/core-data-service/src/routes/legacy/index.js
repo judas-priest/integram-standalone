@@ -216,6 +216,33 @@ export function createLegacyActionRoutes(services, options = {}) {
   });
 
   /**
+   * _m_id - Set specific ID for an object
+   * POST /:database/_m_id/:id
+   * Parameters: new_id (the new ID to set)
+   * Maps to PHP: case "_m_id" in index.php (lines 7841-7857)
+   */
+  router.post('/:database/_m_id/:id', async (req, res) => {
+    try {
+      const { database, id } = req.params;
+      const objectId = parseInt(id, 10);
+      const newId = parseInt(req.data.new_id, 10);
+
+      if (!newId || newId < 1) {
+        return res.status(400).json({ error: 'Invalid ID' });
+      }
+
+      await objectService.setId(database, objectId, newId);
+
+      logger.info('Object ID set via legacy route', { database, oldId: objectId, newId });
+
+      res.json({ status: 'Ok', id: newId });
+    } catch (error) {
+      logger.error('_m_id failed', { error: error.message });
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  /**
    * _m_set - Set object attributes
    * POST /:database/_m_set/:id
    * Parameters: t{id}=value (attributes to set)

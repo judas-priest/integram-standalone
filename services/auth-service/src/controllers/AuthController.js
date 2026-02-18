@@ -41,6 +41,8 @@ export class AuthController {
     this.passwordResetConfirm = this.passwordResetConfirm.bind(this);
     this.getCode = this.getCode.bind(this);
     this.checkCode = this.checkCode.bind(this);
+    this.jwtAuth = this.jwtAuth.bind(this);
+    this.confirmPassword = this.confirmPassword.bind(this);
   }
 
   /**
@@ -372,6 +374,155 @@ export class AuthController {
       });
     } catch (error) {
       this.handleError(res, error, 'Password reset failed');
+    }
+  }
+
+  // ============================================================================
+  // JWT Authentication (Legacy PHP Compatibility)
+  // Maps to PHP: case "jwt" in index.php (lines 7608-7616)
+  // ============================================================================
+
+  /**
+   * Handle JWT authentication request.
+   * Maps to PHP: case "jwt" - verifyJWT() and authJWT()
+   *
+   * This endpoint accepts a JWT token and authenticates the user based on
+   * the payload data.
+   *
+   * @param {Object} req - Express request
+   * @param {Object} res - Express response
+   */
+  async jwtAuth(req, res) {
+    try {
+      const { db: database } = req.params;
+      const jwtToken = req.body.jwt;
+
+      if (!jwtToken) {
+        return res.status(400).json({
+          error: 'JWT token is required',
+          code: 'MISSING_JWT',
+        });
+      }
+
+      this.logger.debug?.('JWT authentication attempt', { database });
+
+      try {
+        // Verify and decode the JWT
+        const result = await this.authService.authenticateWithJWT(database, jwtToken);
+
+        if (!result) {
+          return res.json({ error: 'JWT verification failed' });
+        }
+
+        // Set cookie for legacy compatibility
+        res.cookie(database, result.token, {
+          maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+          httpOnly: true,
+          path: '/',
+          sameSite: 'lax',
+        });
+
+        // Also set XSRF cookie
+        res.cookie(`${database}_xsrf`, result.xsrf, {
+          maxAge: 30 * 24 * 60 * 60 * 1000,
+          path: '/',
+          sameSite: 'lax',
+        });
+
+        this.logger.info?.('JWT authentication successful', {
+          database,
+          userId: result.user?.id,
+        });
+
+        res.json({
+          success: true,
+          message: 'JWT authentication successful',
+          token: result.token,
+          xsrf: result.xsrf,
+          user: result.user,
+        });
+      } catch (jwtError) {
+        this.logger.warn?.('JWT verification failed', { error: jwtError.message });
+        res.json({ error: 'JWT verification failed' });
+      }
+    } catch (error) {
+      this.handleError(res, error, 'JWT authentication failed');
+    }
+  }
+
+  /**
+   * Handle password confirmation request.
+   * Maps to PHP: case "confirm" in index.php (lines 7704-7713)
+   *
+   * This endpoint confirms a password change using an old password hash
+   * and sets the new password, then logs the user in.
+   *
+   * @param {Object} req - Express request
+   * @param {Object} res - Express response
+   */
+  async confirmPassword(req, res) {
+    try {
+      const { db: database } = req.params;
+
+      // Support both query and body params (PHP uses $_REQUEST)
+      const email = req.body.u || req.query.u;
+      const oldPasswordHash = req.body.o || req.query.o;
+      const newPasswordHash = req.body.p || req.query.p;
+
+      if (!email || !oldPasswordHash || !newPasswordHash) {
+        return res.status(400).json({
+          error: 'Missing required parameters (u, o, p)',
+          code: 'MISSING_PARAMS',
+        });
+      }
+
+      this.logger.debug?.('Password confirmation attempt', { database, email });
+
+      try {
+        const result = await this.authService.confirmPassword(
+          database,
+          email,
+          oldPasswordHash,
+          newPasswordHash
+        );
+
+        if (result) {
+          // Set cookie for auto-login
+          res.cookie(database, result.token, {
+            maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+            httpOnly: true,
+            path: '/',
+            sameSite: 'lax',
+          });
+
+          this.logger.info?.('Password confirmed and user logged in', {
+            database,
+            email,
+          });
+
+          res.json({
+            success: true,
+            message: 'Password confirmed',
+            token: result.token,
+            xsrf: result.xsrf,
+          });
+        } else {
+          // Old password doesn't match - redirect to login with obsolete flag
+          this.logger.warn?.('Password confirmation failed - obsolete', { database, email });
+          res.json({
+            error: 'obsolete',
+            redirect: `/${database}/login?u=${encodeURIComponent(email)}&obsolete=1`,
+          });
+        }
+      } catch (confirmError) {
+        this.logger.warn?.('Password confirmation error', { error: confirmError.message });
+        res.json({
+          error: 'obsolete',
+          redirect: `/${database}/login?u=${encodeURIComponent(email)}&obsolete=1`,
+        });
+      }
+    } catch (error) {
+      this.handleError(res, error, 'Password confirmation failed');
     }
   }
 

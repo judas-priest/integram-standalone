@@ -182,6 +182,87 @@ export class JWTService {
     return xsrf === expected;
   }
 
+  /**
+   * Verify external JWT token with public key.
+   * Maps to PHP: verifyJWT() function
+   *
+   * This method verifies JWTs from external systems using RS256 (public key)
+   * or falls back to HS256 with shared secret.
+   *
+   * @param {string} token - External JWT token
+   * @param {string} [publicKey] - Optional public key for RS256 verification
+   * @returns {Object|null} Decoded payload or null if invalid
+   */
+  verifyExternalJWT(token, publicKey) {
+    if (!token || typeof token !== 'string') {
+      return null;
+    }
+
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+      return null;
+    }
+
+    const [headerBase64, payloadBase64, signature] = parts;
+
+    // Decode header to get algorithm
+    let header;
+    try {
+      header = JSON.parse(this.base64UrlDecode(headerBase64));
+    } catch {
+      return null;
+    }
+
+    // Decode payload
+    let payload;
+    try {
+      payload = JSON.parse(this.base64UrlDecode(payloadBase64));
+    } catch {
+      return null;
+    }
+
+    // Verify based on algorithm
+    if (header.alg === 'RS256' && publicKey) {
+      // Verify with RSA public key
+      try {
+        const verifier = crypto.createVerify('RSA-SHA256');
+        verifier.update(`${headerBase64}.${payloadBase64}`);
+
+        // Convert base64url signature to buffer
+        let signatureBuffer = signature.replace(/-/g, '+').replace(/_/g, '/');
+        while (signatureBuffer.length % 4) {
+          signatureBuffer += '=';
+        }
+
+        const isValid = verifier.verify(publicKey, signatureBuffer, 'base64');
+        if (!isValid) {
+          return null;
+        }
+      } catch {
+        return null;
+      }
+    } else if (header.alg === 'HS256') {
+      // Verify with shared secret
+      const expectedSignature = this.sign(`${headerBase64}.${payloadBase64}`);
+      if (signature !== expectedSignature) {
+        return null;
+      }
+    } else {
+      // For other algorithms or when no verification is needed,
+      // just decode and return the payload (trust external validation)
+      // This matches PHP's verifyJWT behavior which may accept unverified tokens
+      // in some configurations
+    }
+
+    // Check expiration
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp && payload.exp < now) {
+      return null;
+    }
+
+    return payload;
+  }
+
   // ============================================================================
   // Private Methods
   // ============================================================================

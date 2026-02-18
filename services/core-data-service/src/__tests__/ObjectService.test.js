@@ -410,4 +410,73 @@ describe('ObjectService', () => {
       });
     });
   });
+
+  describe('setId', () => {
+    it('should change object ID and update references', async () => {
+      // Mock: no existing object with new ID
+      mockDb.execSql.mockResolvedValue({ rows: [], affectedRows: 1 });
+
+      const result = await service.setId('testdb', 1001, 2001);
+
+      expect(result).toBe(true);
+      // Should have executed 4 SQL commands: check + 3 updates
+      expect(mockDb.execSql).toHaveBeenCalledTimes(4);
+    });
+
+    it('should reject if new ID is already occupied', async () => {
+      // Mock: existing object with the new ID
+      mockDb.execSql.mockResolvedValue({
+        rows: [{ id: 2001, up: 100 }],
+        affectedRows: 0,
+      });
+
+      await expect(service.setId('testdb', 1001, 2001)).rejects.toThrow('already occupied');
+    });
+
+    it('should reject if object is metadata (up=0)', async () => {
+      // Mock: the object being changed is metadata
+      mockDb.execSql.mockResolvedValue({
+        rows: [{ id: 1001, up: 0 }],
+        affectedRows: 0,
+      });
+
+      await expect(service.setId('testdb', 1001, 2001)).rejects.toThrow('metadata');
+    });
+
+    it('should update parent references (up field)', async () => {
+      mockDb.execSql.mockResolvedValue({ rows: [], affectedRows: 1 });
+
+      await service.setId('testdb', 1001, 2001);
+
+      // Check that UPDATE for up field was called
+      expect(mockDb.execSql).toHaveBeenCalledWith(
+        expect.stringContaining('SET up = ?'),
+        [2001, 1001],
+        expect.any(String)
+      );
+    });
+
+    it('should update type references (t field)', async () => {
+      mockDb.execSql.mockResolvedValue({ rows: [], affectedRows: 1 });
+
+      await service.setId('testdb', 1001, 2001);
+
+      // Check that UPDATE for t field was called
+      expect(mockDb.execSql).toHaveBeenCalledWith(
+        expect.stringContaining('SET t = ?'),
+        [2001, 1001],
+        expect.any(String)
+      );
+    });
+
+    it('should validate invalid new ID (negative)', async () => {
+      // -5 is invalid because validation rejects negative numbers
+      await expect(service.setId('testdb', 1001, -5)).rejects.toThrow();
+    });
+
+    it('should validate invalid new ID (NaN)', async () => {
+      // NaN should throw validation error
+      await expect(service.setId('testdb', 1001, NaN)).rejects.toThrow();
+    });
+  });
 });

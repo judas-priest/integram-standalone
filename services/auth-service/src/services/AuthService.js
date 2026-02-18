@@ -238,6 +238,158 @@ export class AuthService {
   }
 
   // ============================================================================
+  // JWT Authentication (Legacy PHP Compatibility)
+  // Maps to PHP: case "jwt" in index.php
+  // ============================================================================
+
+  /**
+   * Authenticate user with external JWT token.
+   * Maps to PHP: case "jwt" - verifyJWT() and authJWT()
+   *
+   * @param {string} database - Database name
+   * @param {string} jwtToken - External JWT token
+   * @returns {Promise<Object>} Authentication result
+   */
+  async authenticateWithJWT(database, jwtToken) {
+    this.logger.debug?.('JWT authentication attempt', { database });
+
+    // Verify the JWT token
+    const payload = this.jwt.verifyExternalJWT(jwtToken);
+    if (!payload || !payload.data || !payload.data.userId) {
+      throw new AuthenticationError('Invalid JWT payload');
+    }
+
+    const userId = payload.data.userId;
+
+    // Find user by ID
+    const { rows } = await this.db.execSql(
+      `SELECT u.id, u.val, r.t as roleId, role.val as role, email.val as email
+       FROM ${database} u
+       LEFT JOIN ${database} r ON r.up = u.id AND r.t IN (SELECT id FROM ${database} WHERE t = ?)
+       LEFT JOIN ${database} role ON role.id = r.t AND role.t = ?
+       LEFT JOIN ${database} email ON email.up = u.id AND email.t = ?
+       WHERE u.t = ? AND u.id = ?
+       LIMIT 1`,
+      [ROLE, ROLE, EMAIL, USER, userId],
+      'Find user by ID for JWT auth'
+    );
+
+    const user = rows[0];
+    if (!user) {
+      throw new UserNotFoundError(`User ${userId}`);
+    }
+
+    // Generate tokens for session
+    const token = this.jwt.generateToken({
+      userId: user.id,
+      username: user.val,
+      roleId: user.roleId,
+      role: user.role,
+      database,
+    });
+
+    const xsrf = this.jwt.generateXsrf(token, database);
+
+    // Update activity
+    await this.updateActivity(database, user.id);
+
+    // Load grants
+    const grants = await this.permissions.loadGrants(database, user.roleId);
+
+    return {
+      success: true,
+      token,
+      xsrf,
+      user: {
+        id: user.id,
+        username: user.val,
+        email: user.email,
+        role: user.role,
+        roleId: user.roleId,
+      },
+      grants,
+    };
+  }
+
+  /**
+   * Confirm password change.
+   * Maps to PHP: case "confirm" in index.php
+   *
+   * Verifies old password hash and updates to new password, then logs in.
+   *
+   * @param {string} database - Database name
+   * @param {string} email - User email/username
+   * @param {string} oldPasswordHash - Old password hash (for verification)
+   * @param {string} newPasswordHash - New password hash
+   * @returns {Promise<Object|null>} Login result or null if verification fails
+   */
+  async confirmPassword(database, email, oldPasswordHash, newPasswordHash) {
+    this.logger.debug?.('Password confirmation attempt', { database, email });
+
+    // PHP: SELECT pwd.id FROM $z pwd, $z u WHERE pwd.up=u.id AND pwd.t={PASSWORD}
+    //      AND u.t={USER} AND u.val='...' AND pwd.val='...'
+    const { rows } = await this.db.execSql(
+      `SELECT pwd.id as pwdId, u.id as userId
+       FROM ${database} pwd
+       JOIN ${database} u ON pwd.up = u.id AND u.t = ?
+       WHERE pwd.t = ? AND u.val = ? AND pwd.val = ?
+       LIMIT 1`,
+      [USER, PASSWORD, email, oldPasswordHash],
+      'Verify old password for confirm'
+    );
+
+    if (!rows[0]) {
+      // Old password doesn't match - return null (PHP redirects to login with obsolete)
+      return null;
+    }
+
+    const { pwdId, userId } = rows[0];
+
+    // Update password to new hash
+    await this.db.updateVal(database, pwdId, newPasswordHash, 'Update password for confirm');
+
+    // Log the user in (PHP: login($z, $_REQUEST["u"], "confirm"))
+    // Find user to generate tokens
+    const { rows: userRows } = await this.db.execSql(
+      `SELECT u.id, u.val, r.t as roleId, role.val as role
+       FROM ${database} u
+       LEFT JOIN ${database} r ON r.up = u.id AND r.t IN (SELECT id FROM ${database} WHERE t = ?)
+       LEFT JOIN ${database} role ON role.id = r.t AND role.t = ?
+       WHERE u.id = ?
+       LIMIT 1`,
+      [ROLE, ROLE, userId],
+      'Find user for confirm login'
+    );
+
+    const user = userRows[0];
+    if (!user) {
+      return null;
+    }
+
+    // Generate tokens
+    const token = this.jwt.generateToken({
+      userId: user.id,
+      username: user.val,
+      roleId: user.roleId,
+      role: user.role,
+      database,
+    });
+
+    const xsrf = this.jwt.generateXsrf(token, database);
+
+    // Update activity
+    await this.updateActivity(database, user.id);
+
+    return {
+      success: true,
+      token,
+      xsrf,
+      userId: user.id,
+      username: user.val,
+    };
+  }
+
+  // ============================================================================
   // One-Time Password Methods (Legacy PHP Compatibility)
   // ============================================================================
 
