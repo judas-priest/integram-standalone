@@ -1243,57 +1243,681 @@ router.all('/:db/_connect', async (req, res) => {
   }
 });
 
+// ============================================================================
+// DDL Action Routes (Phase 2 - Real Implementation)
+// ============================================================================
+
 /**
- * Generic API endpoint handler for remaining legacy actions
- * Handles: _d_* DDL actions (stubs for now)
+ * Helper function to parse and update modifiers in requisite name
+ * Modifiers are stored in the val field: :ALIAS=xxx::!NULL::MULTI:Name
  */
+function parseModifiers(val) {
+  let name = val || '';
+  let alias = null;
+  let required = false;
+  let multi = false;
+
+  // Extract :ALIAS=xxx:
+  const aliasMatch = name.match(/:ALIAS=(.*?):/);
+  if (aliasMatch) {
+    alias = aliasMatch[1];
+    name = name.replace(aliasMatch[0], '');
+  }
+
+  // Extract :!NULL:
+  if (name.includes(':!NULL:')) {
+    required = true;
+    name = name.replace(':!NULL:', '');
+  }
+
+  // Extract :MULTI:
+  if (name.includes(':MULTI:')) {
+    multi = true;
+    name = name.replace(':MULTI:', '');
+  }
+
+  return { name: name.trim(), alias, required, multi };
+}
+
+/**
+ * Helper function to build modifier string
+ */
+function buildModifiers(name, alias, required, multi) {
+  let val = '';
+  if (alias) val += `:ALIAS=${alias}:`;
+  if (required) val += ':!NULL:';
+  if (multi) val += ':MULTI:';
+  val += name;
+  return val;
+}
+
+/**
+ * _d_new - Create new type
+ * POST /:db/_d_new/:parentTypeId?
+ * Parameters: val (type name), t (base type), parentTypeId (optional parent)
+ */
+router.post('/:db/_d_new/:parentTypeId?', async (req, res) => {
+  const { db, parentTypeId } = req.params;
+
+  if (!isValidDbName(db)) {
+    return res.status(400).json({ error: 'Invalid database' });
+  }
+
+  try {
+    const parentId = parseInt(parentTypeId || req.body.up || '0', 10);
+    const baseType = parseInt(req.body.t || '8', 10); // Default to CHARS type (8)
+    const name = req.body.val || req.body.name || '';
+
+    if (!name) {
+      return res.status(400).json({ error: 'Type name (val) is required' });
+    }
+
+    // Get next order
+    const order = await getNextOrder(db, parentId);
+
+    // Insert the new type
+    const id = await insertRow(db, parentId, order, baseType, name);
+
+    logger.info('[Legacy _d_new] Type created', { db, id, name, baseType, parentId });
+
+    res.json({
+      status: 'Ok',
+      id,
+      val: name,
+      t: baseType,
+      up: parentId,
+      ord: order,
+    });
+  } catch (error) {
+    logger.error('[Legacy _d_new] Error', { error: error.message, db });
+    res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * _d_save - Save/update type
+ * POST /:db/_d_save/:typeId
+ * Parameters: val (new name), t (new base type)
+ */
+router.post('/:db/_d_save/:typeId', async (req, res) => {
+  const { db, typeId } = req.params;
+
+  if (!isValidDbName(db)) {
+    return res.status(400).json({ error: 'Invalid database' });
+  }
+
+  try {
+    const id = parseInt(typeId, 10);
+    const pool = getPool();
+
+    // Build update query dynamically
+    const updates = [];
+    const params = [];
+
+    if (req.body.val !== undefined) {
+      updates.push('val = ?');
+      params.push(req.body.val);
+    }
+
+    if (req.body.t !== undefined) {
+      updates.push('t = ?');
+      params.push(parseInt(req.body.t, 10));
+    }
+
+    if (req.body.up !== undefined) {
+      updates.push('up = ?');
+      params.push(parseInt(req.body.up, 10));
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    params.push(id);
+    await pool.query(`UPDATE ${db} SET ${updates.join(', ')} WHERE id = ?`, params);
+
+    logger.info('[Legacy _d_save] Type saved', { db, id, updates: req.body });
+
+    res.json({ status: 'Ok', id });
+  } catch (error) {
+    logger.error('[Legacy _d_save] Error', { error: error.message, db });
+    res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * _d_del - Delete type
+ * POST /:db/_d_del/:typeId
+ */
+router.post('/:db/_d_del/:typeId', async (req, res) => {
+  const { db, typeId } = req.params;
+
+  if (!isValidDbName(db)) {
+    return res.status(400).json({ error: 'Invalid database' });
+  }
+
+  try {
+    const id = parseInt(typeId, 10);
+    const cascade = req.body.cascade === '1' || req.body.cascade === true;
+
+    // Delete children first if cascade
+    if (cascade) {
+      await deleteChildren(db, id);
+    }
+
+    // Delete the type
+    await deleteRow(db, id);
+
+    logger.info('[Legacy _d_del] Type deleted', { db, id, cascade });
+
+    res.json({ status: 'Ok' });
+  } catch (error) {
+    logger.error('[Legacy _d_del] Error', { error: error.message, db });
+    res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * _d_req - Add requisite to type
+ * POST /:db/_d_req/:typeId
+ * Parameters: val (requisite name), t (requisite type), alias, required, multi
+ */
+router.post('/:db/_d_req/:typeId', async (req, res) => {
+  const { db, typeId } = req.params;
+
+  if (!isValidDbName(db)) {
+    return res.status(400).json({ error: 'Invalid database' });
+  }
+
+  try {
+    const parentId = parseInt(typeId, 10);
+    const reqType = parseInt(req.body.t || '8', 10); // Default to CHARS
+    const name = req.body.val || req.body.name || '';
+    const alias = req.body.alias || null;
+    const required = req.body.required === '1' || req.body.required === true;
+    const multi = req.body.multi === '1' || req.body.multi === true;
+
+    if (!name) {
+      return res.status(400).json({ error: 'Requisite name (val) is required' });
+    }
+
+    // Build value with modifiers
+    const val = buildModifiers(name, alias, required, multi);
+
+    // Get next order
+    const order = await getNextOrder(db, parentId);
+
+    // Insert the requisite
+    const id = await insertRow(db, parentId, order, reqType, val);
+
+    logger.info('[Legacy _d_req] Requisite added', { db, id, parentId, name, reqType });
+
+    res.json({
+      status: 'Ok',
+      id,
+      val,
+      t: reqType,
+      up: parentId,
+      ord: order,
+    });
+  } catch (error) {
+    logger.error('[Legacy _d_req] Error', { error: error.message, db });
+    res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * _d_alias - Set alias for requisite
+ * POST /:db/_d_alias/:reqId
+ * Parameters: alias (new alias value)
+ */
+router.post('/:db/_d_alias/:reqId', async (req, res) => {
+  const { db, reqId } = req.params;
+
+  if (!isValidDbName(db)) {
+    return res.status(400).json({ error: 'Invalid database' });
+  }
+
+  try {
+    const id = parseInt(reqId, 10);
+    const newAlias = req.body.alias || '';
+    const pool = getPool();
+
+    // Get current value
+    const obj = await getObjectById(db, id);
+    if (!obj) {
+      return res.status(404).json({ error: 'Requisite not found' });
+    }
+
+    // Parse existing modifiers
+    const modifiers = parseModifiers(obj.val);
+
+    // Update alias and rebuild value
+    const newVal = buildModifiers(modifiers.name, newAlias || null, modifiers.required, modifiers.multi);
+
+    await pool.query(`UPDATE ${db} SET val = ? WHERE id = ?`, [newVal, id]);
+
+    logger.info('[Legacy _d_alias] Alias set', { db, id, alias: newAlias });
+
+    res.json({ status: 'Ok', id, alias: newAlias });
+  } catch (error) {
+    logger.error('[Legacy _d_alias] Error', { error: error.message, db });
+    res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * _d_null - Toggle NOT NULL flag for requisite
+ * POST /:db/_d_null/:reqId
+ * Parameters: required (1/0 or true/false)
+ */
+router.post('/:db/_d_null/:reqId', async (req, res) => {
+  const { db, reqId } = req.params;
+
+  if (!isValidDbName(db)) {
+    return res.status(400).json({ error: 'Invalid database' });
+  }
+
+  try {
+    const id = parseInt(reqId, 10);
+    const pool = getPool();
+
+    // Get current value
+    const obj = await getObjectById(db, id);
+    if (!obj) {
+      return res.status(404).json({ error: 'Requisite not found' });
+    }
+
+    // Parse existing modifiers
+    const modifiers = parseModifiers(obj.val);
+
+    // Toggle or set required flag
+    const newRequired = req.body.required !== undefined
+      ? (req.body.required === '1' || req.body.required === true)
+      : !modifiers.required;
+
+    // Rebuild value with updated flag
+    const newVal = buildModifiers(modifiers.name, modifiers.alias, newRequired, modifiers.multi);
+
+    await pool.query(`UPDATE ${db} SET val = ? WHERE id = ?`, [newVal, id]);
+
+    logger.info('[Legacy _d_null] NOT NULL toggled', { db, id, required: newRequired });
+
+    res.json({ status: 'Ok', id, required: newRequired });
+  } catch (error) {
+    logger.error('[Legacy _d_null] Error', { error: error.message, db });
+    res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * _d_multi - Toggle MULTI flag for requisite
+ * POST /:db/_d_multi/:reqId
+ * Parameters: multi (1/0 or true/false)
+ */
+router.post('/:db/_d_multi/:reqId', async (req, res) => {
+  const { db, reqId } = req.params;
+
+  if (!isValidDbName(db)) {
+    return res.status(400).json({ error: 'Invalid database' });
+  }
+
+  try {
+    const id = parseInt(reqId, 10);
+    const pool = getPool();
+
+    // Get current value
+    const obj = await getObjectById(db, id);
+    if (!obj) {
+      return res.status(404).json({ error: 'Requisite not found' });
+    }
+
+    // Parse existing modifiers
+    const modifiers = parseModifiers(obj.val);
+
+    // Toggle or set multi flag
+    const newMulti = req.body.multi !== undefined
+      ? (req.body.multi === '1' || req.body.multi === true)
+      : !modifiers.multi;
+
+    // Rebuild value with updated flag
+    const newVal = buildModifiers(modifiers.name, modifiers.alias, modifiers.required, newMulti);
+
+    await pool.query(`UPDATE ${db} SET val = ? WHERE id = ?`, [newVal, id]);
+
+    logger.info('[Legacy _d_multi] MULTI toggled', { db, id, multi: newMulti });
+
+    res.json({ status: 'Ok', id, multi: newMulti });
+  } catch (error) {
+    logger.error('[Legacy _d_multi] Error', { error: error.message, db });
+    res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * _d_attrs - Set modifiers for requisite
+ * POST /:db/_d_attrs/:reqId
+ * Parameters: alias, required, multi (sets all modifiers at once)
+ */
+router.post('/:db/_d_attrs/:reqId', async (req, res) => {
+  const { db, reqId } = req.params;
+
+  if (!isValidDbName(db)) {
+    return res.status(400).json({ error: 'Invalid database' });
+  }
+
+  try {
+    const id = parseInt(reqId, 10);
+    const pool = getPool();
+
+    // Get current value
+    const obj = await getObjectById(db, id);
+    if (!obj) {
+      return res.status(404).json({ error: 'Requisite not found' });
+    }
+
+    // Parse existing modifiers
+    const modifiers = parseModifiers(obj.val);
+
+    // Update modifiers from request (keep existing if not provided)
+    const newAlias = req.body.alias !== undefined ? (req.body.alias || null) : modifiers.alias;
+    const newRequired = req.body.required !== undefined
+      ? (req.body.required === '1' || req.body.required === true)
+      : modifiers.required;
+    const newMulti = req.body.multi !== undefined
+      ? (req.body.multi === '1' || req.body.multi === true)
+      : modifiers.multi;
+
+    // Update name if provided
+    const newName = req.body.name || req.body.val || modifiers.name;
+
+    // Rebuild value
+    const newVal = buildModifiers(newName, newAlias, newRequired, newMulti);
+
+    await pool.query(`UPDATE ${db} SET val = ? WHERE id = ?`, [newVal, id]);
+
+    logger.info('[Legacy _d_attrs] Modifiers updated', { db, id, alias: newAlias, required: newRequired, multi: newMulti });
+
+    res.json({
+      status: 'Ok',
+      id,
+      name: newName,
+      alias: newAlias,
+      required: newRequired,
+      multi: newMulti,
+    });
+  } catch (error) {
+    logger.error('[Legacy _d_attrs] Error', { error: error.message, db });
+    res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * _d_up - Move requisite up (decrease order)
+ * POST /:db/_d_up/:reqId
+ */
+router.post('/:db/_d_up/:reqId', async (req, res) => {
+  const { db, reqId } = req.params;
+
+  if (!isValidDbName(db)) {
+    return res.status(400).json({ error: 'Invalid database' });
+  }
+
+  try {
+    const id = parseInt(reqId, 10);
+    const pool = getPool();
+
+    // Get current object
+    const obj = await getObjectById(db, id);
+    if (!obj) {
+      return res.status(404).json({ error: 'Requisite not found' });
+    }
+
+    // Find the previous sibling (same parent, lower order)
+    const [siblings] = await pool.query(
+      `SELECT id, ord FROM ${db} WHERE up = ? AND ord < ? ORDER BY ord DESC LIMIT 1`,
+      [obj.up, obj.ord]
+    );
+
+    if (siblings.length === 0) {
+      return res.json({ status: 'Ok', message: 'Already at top' });
+    }
+
+    const prevSibling = siblings[0];
+
+    // Swap orders
+    await pool.query(`UPDATE ${db} SET ord = ? WHERE id = ?`, [obj.ord, prevSibling.id]);
+    await pool.query(`UPDATE ${db} SET ord = ? WHERE id = ?`, [prevSibling.ord, id]);
+
+    logger.info('[Legacy _d_up] Requisite moved up', { db, id, newOrd: prevSibling.ord });
+
+    res.json({ status: 'Ok', ord: prevSibling.ord });
+  } catch (error) {
+    logger.error('[Legacy _d_up] Error', { error: error.message, db });
+    res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * _d_ord - Set order for requisite
+ * POST /:db/_d_ord/:reqId
+ * Parameters: ord (new order value)
+ */
+router.post('/:db/_d_ord/:reqId', async (req, res) => {
+  const { db, reqId } = req.params;
+
+  if (!isValidDbName(db)) {
+    return res.status(400).json({ error: 'Invalid database' });
+  }
+
+  try {
+    const id = parseInt(reqId, 10);
+    const newOrd = parseInt(req.body.ord, 10);
+
+    if (isNaN(newOrd)) {
+      return res.status(400).json({ error: 'Order (ord) is required' });
+    }
+
+    const pool = getPool();
+    await pool.query(`UPDATE ${db} SET ord = ? WHERE id = ?`, [newOrd, id]);
+
+    logger.info('[Legacy _d_ord] Order set', { db, id, ord: newOrd });
+
+    res.json({ status: 'Ok', id, ord: newOrd });
+  } catch (error) {
+    logger.error('[Legacy _d_ord] Error', { error: error.message, db });
+    res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * _d_del_req - Delete requisite
+ * POST /:db/_d_del_req/:reqId
+ */
+router.post('/:db/_d_del_req/:reqId', async (req, res) => {
+  const { db, reqId } = req.params;
+
+  if (!isValidDbName(db)) {
+    return res.status(400).json({ error: 'Invalid database' });
+  }
+
+  try {
+    const id = parseInt(reqId, 10);
+    const cascade = req.body.cascade === '1' || req.body.cascade === true;
+
+    // Delete children first if cascade
+    if (cascade) {
+      await deleteChildren(db, id);
+    }
+
+    // Delete the requisite
+    await deleteRow(db, id);
+
+    logger.info('[Legacy _d_del_req] Requisite deleted', { db, id, cascade });
+
+    res.json({ status: 'Ok' });
+  } catch (error) {
+    logger.error('[Legacy _d_del_req] Error', { error: error.message, db });
+    res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * _d_ref - Create reference type (type that references another type)
+ * POST /:db/_d_ref/:parentTypeId
+ * Parameters: ref (referenced type ID), val (name)
+ */
+router.post('/:db/_d_ref/:parentTypeId', async (req, res) => {
+  const { db, parentTypeId } = req.params;
+
+  if (!isValidDbName(db)) {
+    return res.status(400).json({ error: 'Invalid database' });
+  }
+
+  try {
+    const parentId = parseInt(parentTypeId, 10);
+    const refTypeId = parseInt(req.body.ref || req.body.t, 10);
+    const name = req.body.val || req.body.name || '';
+
+    if (!refTypeId) {
+      return res.status(400).json({ error: 'Reference type ID (ref) is required' });
+    }
+
+    // Get next order
+    const order = await getNextOrder(db, parentId);
+
+    // Insert the reference requisite
+    // The type (t) field is the referenced type ID
+    const id = await insertRow(db, parentId, order, refTypeId, name);
+
+    logger.info('[Legacy _d_ref] Reference created', { db, id, parentId, refTypeId, name });
+
+    res.json({
+      status: 'Ok',
+      id,
+      val: name,
+      t: refTypeId,
+      up: parentId,
+      ord: order,
+    });
+  } catch (error) {
+    logger.error('[Legacy _d_ref] Error', { error: error.message, db });
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// Additional DML Actions (Phase 2)
+// ============================================================================
+
+/**
+ * _m_up - Move object up (decrease order)
+ * POST /:db/_m_up/:id
+ */
+router.post('/:db/_m_up/:id', async (req, res) => {
+  const { db, id } = req.params;
+
+  if (!isValidDbName(db)) {
+    return res.status(400).json({ error: 'Invalid database' });
+  }
+
+  try {
+    const objectId = parseInt(id, 10);
+    const pool = getPool();
+
+    // Get current object
+    const obj = await getObjectById(db, objectId);
+    if (!obj) {
+      return res.status(404).json({ error: 'Object not found' });
+    }
+
+    // Find the previous sibling (same parent and type, lower order)
+    const [siblings] = await pool.query(
+      `SELECT id, ord FROM ${db} WHERE up = ? AND t = ? AND ord < ? ORDER BY ord DESC LIMIT 1`,
+      [obj.up, obj.t, obj.ord]
+    );
+
+    if (siblings.length === 0) {
+      return res.json({ status: 'Ok', message: 'Already at top' });
+    }
+
+    const prevSibling = siblings[0];
+
+    // Swap orders
+    await pool.query(`UPDATE ${db} SET ord = ? WHERE id = ?`, [obj.ord, prevSibling.id]);
+    await pool.query(`UPDATE ${db} SET ord = ? WHERE id = ?`, [prevSibling.ord, objectId]);
+
+    logger.info('[Legacy _m_up] Object moved up', { db, id: objectId, newOrd: prevSibling.ord });
+
+    res.json({ status: 'Ok', ord: prevSibling.ord });
+  } catch (error) {
+    logger.error('[Legacy _m_up] Error', { error: error.message, db });
+    res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * _m_ord - Set order for object
+ * POST /:db/_m_ord/:id
+ * Parameters: ord (new order value)
+ */
+router.post('/:db/_m_ord/:id', async (req, res) => {
+  const { db, id } = req.params;
+
+  if (!isValidDbName(db)) {
+    return res.status(400).json({ error: 'Invalid database' });
+  }
+
+  try {
+    const objectId = parseInt(id, 10);
+    const newOrd = parseInt(req.body.ord, 10);
+
+    if (isNaN(newOrd)) {
+      return res.status(400).json({ error: 'Order (ord) is required' });
+    }
+
+    const pool = getPool();
+    await pool.query(`UPDATE ${db} SET ord = ? WHERE id = ?`, [newOrd, objectId]);
+
+    logger.info('[Legacy _m_ord] Order set', { db, id: objectId, ord: newOrd });
+
+    res.json({ status: 'Ok', id: objectId, ord: newOrd });
+  } catch (error) {
+    logger.error('[Legacy _m_ord] Error', { error: error.message, db });
+    res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * _m_id - Change object ID (reserved operation)
+ * POST /:db/_m_id/:id
+ */
+router.post('/:db/_m_id/:id', async (req, res) => {
+  const { db, id } = req.params;
+
+  // ID changes are dangerous - usually not allowed
+  logger.warn('[Legacy _m_id] ID change attempted (not implemented)', { db, id });
+
+  res.status(400).json({
+    error: 'ID change is not supported for data integrity reasons'
+  });
+});
+
+// ============================================================================
+// Generic fallback for unknown actions
+// ============================================================================
+
 router.post('/:db/:action', async (req, res) => {
   const { db, action } = req.params;
-  const isJSON = req.query.JSON !== undefined || req.query.JSON_KV !== undefined || req.query.JSON_DATA !== undefined;
 
   // Validate DB name
   if (!isValidDbName(db)) {
-    if (isJSON) {
-      return res.json({ success: false, error: 'Invalid database' });
-    }
-    return res.status(400).send('Invalid database');
+    return res.status(400).json({ error: 'Invalid database' });
   }
 
-  logger.info('[Legacy API] Request', { db, action, body: req.body });
+  logger.warn('[Legacy API] Unknown action', { db, action, body: req.body });
 
-  // Handle DDL actions (Phase 2 - still stubs)
-  switch (action) {
-    case '_d_new':
-      return res.json({ success: true, id: Date.now(), message: 'Type created (stub - Phase 2)' });
-
-    case '_d_save':
-    case '_patchterm':
-      return res.json({ success: true, message: 'Type saved (stub - Phase 2)' });
-
-    case '_d_del':
-    case '_deleteterm':
-      return res.json({ success: true, message: 'Type deleted (stub - Phase 2)' });
-
-    case '_d_req':
-    case '_attributes':
-      return res.json({ success: true, message: 'Requisite added (stub - Phase 2)' });
-
-    case '_d_alias':
-    case '_setalias':
-      return res.json({ success: true, message: 'Alias set (stub - Phase 2)' });
-
-    case '_d_null':
-    case '_setnull':
-      return res.json({ success: true, message: 'NULL flag toggled (stub - Phase 2)' });
-
-    case '_d_multi':
-    case '_setmulti':
-      return res.json({ success: true, message: 'MULTI flag toggled (stub - Phase 2)' });
-
-    default:
-      logger.warn('[Legacy API] Unknown action', { db, action });
-      return res.json({ success: false, error: `Unknown action: ${action}` });
-  }
+  res.json({ success: false, error: `Unknown action: ${action}` });
 });
 
 export default router;

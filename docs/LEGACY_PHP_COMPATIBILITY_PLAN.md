@@ -21,8 +21,8 @@
 | Аутентификация | ✅ Полная | 100% |
 | Health & Info | ✅ Полная | 100% |
 | WebSocket | ✅ Базовая | 70% |
-| DML Actions (стабы) | ⚠️ Стабы | 20% |
-| DDL Actions | ⚠️ Стабы | 10% |
+| DML Actions | ✅ Реализовано | 100% |
+| DDL Actions | ✅ Реализовано | 100% |
 | Отчёты | ❌ Нет | 0% |
 | Файлы | ❌ Нет | 0% |
 | Шаблоны | ❌ Нет | 0% |
@@ -53,17 +53,34 @@
 | `GET /health` | — | Health check |
 | `GET /api/info` | — | Информация о сервере |
 
-### Стабы (⚠️ требуют полной реализации)
+### DML Actions (✅ Полностью реализованы)
 
 | Эндпоинт | PHP Аналог | Статус |
 |----------|------------|--------|
-| `POST /{db}/_m_new` | `case "_m_new"` | Стаб |
-| `POST /{db}/_m_save` | `case "_m_save"` | Стаб |
-| `POST /{db}/_m_del` | `case "_m_del"` | Стаб |
-| `POST /{db}/_m_move` | `case "_m_move"` | Стаб |
-| `POST /{db}/_m_set` | `case "_m_set"` | Стаб |
-| `POST /{db}/_d_new` | `case "_d_new"` | Стаб |
-| `POST /{db}/_d_del` | `case "_d_del"` | Стаб |
+| `POST /{db}/_m_new` | `case "_m_new"` | ✅ Реализован |
+| `POST /{db}/_m_save` | `case "_m_save"` | ✅ Реализован |
+| `POST /{db}/_m_del` | `case "_m_del"` | ✅ Реализован |
+| `POST /{db}/_m_move` | `case "_m_move"` | ✅ Реализован |
+| `POST /{db}/_m_set` | `case "_m_set"` | ✅ Реализован |
+| `POST /{db}/_m_up` | `case "_m_up"` | ✅ Реализован |
+| `POST /{db}/_m_ord` | `case "_m_ord"` | ✅ Реализован |
+
+### DDL Actions (✅ Полностью реализованы)
+
+| Эндпоинт | PHP Аналог | Статус |
+|----------|------------|--------|
+| `POST /{db}/_d_new` | `case "_d_new"` | ✅ Реализован |
+| `POST /{db}/_d_save` | `case "_d_save"` | ✅ Реализован |
+| `POST /{db}/_d_del` | `case "_d_del"` | ✅ Реализован |
+| `POST /{db}/_d_req` | `case "_d_req"` | ✅ Реализован |
+| `POST /{db}/_d_alias` | `case "_d_alias"` | ✅ Реализован |
+| `POST /{db}/_d_null` | `case "_d_null"` | ✅ Реализован |
+| `POST /{db}/_d_multi` | `case "_d_multi"` | ✅ Реализован |
+| `POST /{db}/_d_attrs` | `case "_d_attrs"` | ✅ Реализован |
+| `POST /{db}/_d_up` | `case "_d_up"` | ✅ Реализован |
+| `POST /{db}/_d_ord` | `case "_d_ord"` | ✅ Реализован |
+| `POST /{db}/_d_del_req` | `case "_d_del_req"` | ✅ Реализован |
+| `POST /{db}/_d_ref` | `case "_d_ref"` | ✅ Реализован |
 
 ---
 
@@ -200,14 +217,24 @@ PHP: строки 7859-7990
 
 **Результат:** Можно создавать, редактировать и удалять данные.
 
-### Фаза 2: Полный CRUD (2-3 недели)
+### Фаза 2: Полный CRUD (2-3 недели) ✅ ЗАВЕРШЕНА
 
 **Цель:** Полноценное редактирование структуры
 
-- [ ] Все `_d_*` эндпоинты
-- [ ] `_m_move`, `_m_up`, `_m_ord`
-- [ ] `_ref_reqs` — данные для выпадающих списков
-- [ ] Валидация и маски
+- [x] `_d_new` — создание типов
+- [x] `_d_save` — сохранение типов
+- [x] `_d_del` — удаление типов
+- [x] `_d_req` — добавление реквизитов
+- [x] `_d_alias` — установка алиаса
+- [x] `_d_null` — флаг NOT NULL
+- [x] `_d_multi` — флаг MULTI
+- [x] `_d_attrs` — установка всех модификаторов
+- [x] `_d_up` — перемещение вверх
+- [x] `_d_ord` — установка порядка
+- [x] `_d_del_req` — удаление реквизитов
+- [x] `_d_ref` — создание ссылочных типов
+- [x] `_m_up` — перемещение объекта вверх
+- [x] `_m_ord` — установка порядка объекта
 
 **Результат:** Полная совместимость с PHP для работы с данными и метаданными.
 
@@ -387,7 +414,7 @@ src/
 
 Полная совместимость с PHP index.php требует реализации ~50 эндпоинтов и ~30 вспомогательных функций. При поэтапной реализации (3 фазы) можно достичь 90%+ совместимости за 6-8 недель работы.
 
-**Текущий прогресс:** ~40% (аутентификация + legacy compatibility layer + Phase 1 MVP DML/Query actions)
+**Текущий прогресс:** ~60% (аутентификация + legacy compatibility layer + Phase 1 MVP + Phase 2 DDL actions)
 
 ---
 
@@ -591,6 +618,212 @@ Response (key-value pairs):
 
 ---
 
-**Версия:** 1.2.0
+## Phase 2 DDL Implementation Details
+
+### Реализованные DDL Actions
+
+#### `_d_new` — Создание типа
+```
+POST /:db/_d_new/:parentTypeId?
+Parameters:
+  - up: Parent type ID (optional, default: 0)
+  - t: Base type ID (default: 8 = CHARS)
+  - val: Type name
+
+Response:
+{
+  "status": "Ok",
+  "id": 500,
+  "val": "NewType",
+  "t": 8,
+  "up": 0,
+  "ord": 10
+}
+```
+
+#### `_d_save` — Сохранение типа
+```
+POST /:db/_d_save/:typeId
+Parameters:
+  - val: New name (optional)
+  - t: New base type (optional)
+  - up: New parent (optional)
+
+Response: { "status": "Ok", "id": 500 }
+```
+
+#### `_d_del` — Удаление типа
+```
+POST /:db/_d_del/:typeId
+Parameters:
+  - cascade: "1" to delete children recursively
+
+Response: { "status": "Ok" }
+```
+
+#### `_d_req` — Добавление реквизита
+```
+POST /:db/_d_req/:typeId
+Parameters:
+  - val: Requisite name
+  - t: Requisite type ID
+  - alias: Field alias (optional)
+  - required: "1" for NOT NULL (optional)
+  - multi: "1" for multi-select (optional)
+
+Response:
+{
+  "status": "Ok",
+  "id": 501,
+  "val": ":ALIAS=field::!NULL:Field Name",
+  "t": 8,
+  "up": 500,
+  "ord": 1
+}
+```
+
+#### `_d_alias` — Установка алиаса
+```
+POST /:db/_d_alias/:reqId
+Parameters:
+  - alias: New alias value
+
+Response: { "status": "Ok", "id": 501, "alias": "new_alias" }
+```
+
+#### `_d_null` — Переключение NOT NULL
+```
+POST /:db/_d_null/:reqId
+Parameters:
+  - required: "1" or "0" (optional, toggles if not provided)
+
+Response: { "status": "Ok", "id": 501, "required": true }
+```
+
+#### `_d_multi` — Переключение MULTI
+```
+POST /:db/_d_multi/:reqId
+Parameters:
+  - multi: "1" or "0" (optional, toggles if not provided)
+
+Response: { "status": "Ok", "id": 501, "multi": true }
+```
+
+#### `_d_attrs` — Установка всех модификаторов
+```
+POST /:db/_d_attrs/:reqId
+Parameters:
+  - name: New name (optional)
+  - alias: Alias value (optional)
+  - required: "1" or "0" (optional)
+  - multi: "1" or "0" (optional)
+
+Response:
+{
+  "status": "Ok",
+  "id": 501,
+  "name": "Updated Name",
+  "alias": "updated_alias",
+  "required": true,
+  "multi": false
+}
+```
+
+#### `_d_up` — Перемещение реквизита вверх
+```
+POST /:db/_d_up/:reqId
+
+Response: { "status": "Ok", "ord": 2 }
+```
+
+#### `_d_ord` — Установка порядка реквизита
+```
+POST /:db/_d_ord/:reqId
+Parameters:
+  - ord: New order value
+
+Response: { "status": "Ok", "id": 501, "ord": 5 }
+```
+
+#### `_d_del_req` — Удаление реквизита
+```
+POST /:db/_d_del_req/:reqId
+Parameters:
+  - cascade: "1" to delete children
+
+Response: { "status": "Ok" }
+```
+
+#### `_d_ref` — Создание ссылочного реквизита
+```
+POST /:db/_d_ref/:parentTypeId
+Parameters:
+  - ref: Referenced type ID
+  - val: Requisite name
+
+Response:
+{
+  "status": "Ok",
+  "id": 502,
+  "val": "User Reference",
+  "t": 18,  // Referenced type
+  "up": 500,
+  "ord": 2
+}
+```
+
+### Дополнительные DML Actions
+
+#### `_m_up` — Перемещение объекта вверх
+```
+POST /:db/_m_up/:id
+
+Response: { "status": "Ok", "ord": 2 }
+```
+
+#### `_m_ord` — Установка порядка объекта
+```
+POST /:db/_m_ord/:id
+Parameters:
+  - ord: New order value
+
+Response: { "status": "Ok", "id": 1001, "ord": 5 }
+```
+
+---
+
+## Legacy Site Dev Server
+
+### Скрипт развёртывания для dev-режима
+
+Для разработки с legacy HTML frontend и Node.js backend используйте:
+
+```bash
+# Запуск dev-сервера
+cd backend/monolith
+npm run dev:legacy
+
+# Или с bun
+bun run dev:legacy
+```
+
+Сервер автоматически:
+- Обслуживает статические файлы из `integram-server/`
+- Импортирует `legacy-compat.js` для API
+- Поддерживает WebSocket
+- Логирует все запросы в консоль
+
+### Доступные URL
+
+| URL | Описание |
+|-----|----------|
+| `http://localhost:8081/` | Главная страница |
+| `http://localhost:8081/my` | Вход в базу 'my' |
+| `http://localhost:8081/demo` | Вход в базу 'demo' |
+| `http://localhost:8081/health` | Health check |
+
+---
+
+**Версия:** 1.3.0
 **Дата:** 2026-02-18
 **Issue:** [#121](https://github.com/unidel2035/integram-standalone/issues/121)

@@ -48,7 +48,11 @@
     "bun:start": "bun run src/index-minimal.js",
     "bun:dev": "bun --watch run src/index-minimal.js",
     "bun:start:full": "bun run src/index.js",
-    "bun:dev:full": "bun --watch run src/index.js"
+    "bun:dev:full": "bun --watch run src/index.js",
+    "dev:legacy": "node --watch scripts/start-legacy-dev.js",
+    "start:legacy": "node scripts/start-legacy-dev.js",
+    "bun:dev:legacy": "bun --watch scripts/start-legacy-dev.js",
+    "bun:start:legacy": "bun run scripts/start-legacy-dev.js"
   },
   "keywords": [
     "monolith",

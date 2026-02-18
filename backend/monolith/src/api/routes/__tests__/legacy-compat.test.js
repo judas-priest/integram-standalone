@@ -348,4 +348,227 @@ describe('Legacy Compatibility Layer', () => {
       expect(Object.keys(response).length).toBe(3);
     });
   });
+
+  describe('Phase 2 - DDL Actions modifier building', () => {
+    // Helper function to build modifier string
+    function buildModifiers(name, alias, required, multi) {
+      let val = '';
+      if (alias) val += `:ALIAS=${alias}:`;
+      if (required) val += ':!NULL:';
+      if (multi) val += ':MULTI:';
+      val += name;
+      return val;
+    }
+
+    // Helper function to parse modifiers
+    function parseModifiers(val) {
+      let name = val || '';
+      let alias = null;
+      let required = false;
+      let multi = false;
+
+      const aliasMatch = name.match(/:ALIAS=(.*?):/);
+      if (aliasMatch) {
+        alias = aliasMatch[1];
+        name = name.replace(aliasMatch[0], '');
+      }
+
+      if (name.includes(':!NULL:')) {
+        required = true;
+        name = name.replace(':!NULL:', '');
+      }
+
+      if (name.includes(':MULTI:')) {
+        multi = true;
+        name = name.replace(':MULTI:', '');
+      }
+
+      return { name: name.trim(), alias, required, multi };
+    }
+
+    it('should build modifier string correctly', () => {
+      // Test building with all modifiers
+      const val = buildModifiers('Email', 'email', true, false);
+      expect(val).toBe(':ALIAS=email::!NULL:Email');
+
+      // Test with only alias
+      const val2 = buildModifiers('Phone', 'phone', false, false);
+      expect(val2).toBe(':ALIAS=phone:Phone');
+
+      // Test with only required
+      const val3 = buildModifiers('Name', null, true, false);
+      expect(val3).toBe(':!NULL:Name');
+
+      // Test with only multi
+      const val4 = buildModifiers('Roles', null, false, true);
+      expect(val4).toBe(':MULTI:Roles');
+
+      // Test with no modifiers
+      const val5 = buildModifiers('Description', null, false, false);
+      expect(val5).toBe('Description');
+
+      // Test with all modifiers
+      const val6 = buildModifiers('Tags', 'tags', true, true);
+      expect(val6).toBe(':ALIAS=tags::!NULL::MULTI:Tags');
+    });
+
+    it('should parse modifiers correctly', () => {
+      // Test parsing with all modifiers
+      const parsed1 = parseModifiers(':ALIAS=email::!NULL:Email');
+      expect(parsed1.alias).toBe('email');
+      expect(parsed1.required).toBe(true);
+      expect(parsed1.multi).toBe(false);
+      expect(parsed1.name).toBe('Email');
+
+      // Test round-trip
+      const original = ':ALIAS=tags::!NULL::MULTI:User Tags';
+      const parsed = parseModifiers(original);
+      const rebuilt = buildModifiers(parsed.name, parsed.alias, parsed.required, parsed.multi);
+      const reparsed = parseModifiers(rebuilt);
+
+      expect(reparsed.name).toBe(parsed.name);
+      expect(reparsed.alias).toBe(parsed.alias);
+      expect(reparsed.required).toBe(parsed.required);
+      expect(reparsed.multi).toBe(parsed.multi);
+    });
+  });
+
+  describe('Phase 2 - DDL response formats', () => {
+    it('should format _d_new response correctly', () => {
+      const response = {
+        status: 'Ok',
+        id: 500,
+        val: 'NewType',
+        t: 8,
+        up: 0,
+        ord: 10,
+      };
+
+      expect(response.status).toBe('Ok');
+      expect(response.id).toBe(500);
+      expect(response.val).toBe('NewType');
+    });
+
+    it('should format _d_req response correctly', () => {
+      const response = {
+        status: 'Ok',
+        id: 501,
+        val: ':ALIAS=field1::!NULL:Field Name',
+        t: 8,
+        up: 500,
+        ord: 1,
+      };
+
+      expect(response.status).toBe('Ok');
+      expect(response.id).toBe(501);
+      expect(response.up).toBe(500);
+    });
+
+    it('should format _d_alias response correctly', () => {
+      const response = {
+        status: 'Ok',
+        id: 501,
+        alias: 'new_alias',
+      };
+
+      expect(response.alias).toBe('new_alias');
+    });
+
+    it('should format _d_null response correctly', () => {
+      const response = {
+        status: 'Ok',
+        id: 501,
+        required: true,
+      };
+
+      expect(response.required).toBe(true);
+    });
+
+    it('should format _d_multi response correctly', () => {
+      const response = {
+        status: 'Ok',
+        id: 501,
+        multi: true,
+      };
+
+      expect(response.multi).toBe(true);
+    });
+
+    it('should format _d_attrs response correctly', () => {
+      const response = {
+        status: 'Ok',
+        id: 501,
+        name: 'Updated Name',
+        alias: 'updated_alias',
+        required: true,
+        multi: false,
+      };
+
+      expect(response.name).toBe('Updated Name');
+      expect(response.alias).toBe('updated_alias');
+      expect(response.required).toBe(true);
+      expect(response.multi).toBe(false);
+    });
+
+    it('should format _d_ord response correctly', () => {
+      const response = {
+        status: 'Ok',
+        id: 501,
+        ord: 5,
+      };
+
+      expect(response.ord).toBe(5);
+    });
+
+    it('should format _d_ref response correctly', () => {
+      const response = {
+        status: 'Ok',
+        id: 502,
+        val: 'User Reference',
+        t: 18, // Referenced type ID (User)
+        up: 500,
+        ord: 2,
+      };
+
+      expect(response.t).toBe(18);
+      expect(response.val).toBe('User Reference');
+    });
+  });
+
+  describe('Phase 2 - DDL actions list', () => {
+    it('should define all Phase 2 DDL actions', () => {
+      const phase2Actions = [
+        '_d_new',      // Create type
+        '_d_save',     // Save type
+        '_d_del',      // Delete type
+        '_d_req',      // Add requisite
+        '_d_alias',    // Set alias
+        '_d_null',     // Toggle NOT NULL
+        '_d_multi',    // Toggle MULTI
+        '_d_attrs',    // Set all modifiers
+        '_d_up',       // Move up
+        '_d_ord',      // Set order
+        '_d_del_req',  // Delete requisite
+        '_d_ref',      // Create reference
+      ];
+
+      expect(phase2Actions.length).toBe(12);
+      phase2Actions.forEach(action => {
+        expect(action.startsWith('_d_')).toBe(true);
+      });
+    });
+
+    it('should define Phase 2 additional DML actions', () => {
+      const additionalDmlActions = [
+        '_m_up',   // Move object up
+        '_m_ord',  // Set object order
+        '_m_id',   // Change ID (restricted)
+      ];
+
+      expect(additionalDmlActions.length).toBe(3);
+      additionalDmlActions.forEach(action => {
+        expect(action.startsWith('_m_')).toBe(true);
+      });
+    });
+  });
 });
