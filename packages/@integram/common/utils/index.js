@@ -14,6 +14,12 @@ import {
   BASIC_TYPES,
 } from '../constants/index.js';
 
+// Import Russian locale functions
+import russianLocale from './russian-locale.js';
+
+// Re-export Russian locale functions
+export * from './russian-locale.js';
+
 // ============================================================================
 // Validation Utilities
 // ============================================================================
@@ -513,4 +519,7 @@ export default {
 
   // Database name
   emailToDbName,
+
+  // Russian locale (re-export all)
+  ...russianLocale,
 };
