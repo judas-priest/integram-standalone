@@ -3,11 +3,12 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Monolithic backend for Integram - consolidates orchestrator, YouTube analytics, MCP server, and accounting services",
-  "main": "src/index.js",
+  "main": "src/index-minimal.js",
   "scripts": {
-    "start": "node --max-old-space-size=2048 src/index.js",
-    "start:high-mem": "node --max-old-space-size=4096 src/index.js",
-    "dev": "node --watch --max-old-space-size=2048 src/index.js",
+    "start": "node --max-old-space-size=2048 src/index-minimal.js",
+    "start:high-mem": "node --max-old-space-size=4096 src/index-minimal.js",
+    "start:full": "node --max-old-space-size=2048 src/index.js",
+    "dev": "node --watch --max-old-space-size=2048 src/index-minimal.js",
     "resilient-logger": "node src/resilient-logger.js",
     "resilient-logger:watch": "node --watch src/resilient-logger.js",
     "resilient-logger:deploy": "./scripts/deploy-resilient-logger.sh production",
@@ -44,8 +45,10 @@
     "bun:deploy:dev": "./scripts/deploy-bun.sh --dev",
     "bun:deploy:install": "./scripts/deploy-bun.sh --install-only",
     "bun:deploy:pm2": "./scripts/deploy-bun.sh --pm2",
-    "bun:start": "bun run src/index.js",
-    "bun:dev": "bun --watch run src/index.js"
+    "bun:start": "bun run src/index-minimal.js",
+    "bun:dev": "bun --watch run src/index-minimal.js",
+    "bun:start:full": "bun run src/index.js",
+    "bun:dev:full": "bun --watch run src/index.js"
   },
   "keywords": [
     "monolith",

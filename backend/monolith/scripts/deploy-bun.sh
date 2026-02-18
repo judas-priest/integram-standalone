@@ -163,8 +163,8 @@ if [ ! -f "package.json" ]; then
     exit 1
 fi
 
-if [ ! -f "src/index.js" ]; then
-    echo -e "${RED}[ERROR]${NC} src/index.js not found"
+if [ ! -f "src/index-minimal.js" ]; then
+    echo -e "${RED}[ERROR]${NC} src/index-minimal.js not found"
     exit 1
 fi
 
@@ -263,7 +263,7 @@ if [ "$INSTALL_ONLY" = true ]; then
     echo ""
     echo -e "${YELLOW}To start the server:${NC}"
     echo "  Development:  bun run dev"
-    echo "  Production:   bun run src/index.js"
+    echo "  Production:   bun run src/index-minimal.js"
     echo "  PM2:          bun run pm2:start"
     echo ""
     exit 0
@@ -286,7 +286,7 @@ if [ "$USE_PM2" = true ]; then
     if [ -f "ecosystem.config.cjs" ]; then
         pm2 start ecosystem.config.cjs --interpreter ~/.bun/bin/bun
     else
-        pm2 start src/index.js --name dronedoc-monolith --interpreter ~/.bun/bin/bun
+        pm2 start src/index-minimal.js --name dronedoc-monolith --interpreter ~/.bun/bin/bun
     fi
 
     pm2 save
@@ -308,11 +308,11 @@ else
         echo -e "${YELLOW}[INFO]${NC} Starting in development mode with watch..."
         echo -e "${YELLOW}[INFO]${NC} Press Ctrl+C to stop"
         echo ""
-        bun --watch run src/index.js
+        bun --watch run src/index-minimal.js
     else
         echo -e "${YELLOW}[INFO]${NC} Starting in production mode..."
         echo -e "${YELLOW}[INFO]${NC} Press Ctrl+C to stop"
         echo ""
-        bun run src/index.js
+        bun run src/index-minimal.js
     fi
 fi
