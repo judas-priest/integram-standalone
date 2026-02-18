@@ -87,8 +87,21 @@ cd integram-standalone
 
 ### 2. Установка зависимостей
 
+#### Вариант A: С использованием Bun (рекомендуется)
+
 ```bash
-# Установка зависимостей backend
+cd backend/monolith
+
+# Полное развёртывание одной командой
+./scripts/deploy-bun.sh --install-only
+
+# Или установка вручную
+bun install
+```
+
+#### Вариант B: С использованием npm
+
+```bash
 cd backend/monolith
 npm install
 ```
@@ -105,6 +118,14 @@ nano .env
 
 ### 4. Запуск в режиме разработки
 
+#### С Bun (быстрее)
+```bash
+bun run dev
+# или
+./scripts/deploy-bun.sh --dev
+```
+
+#### С Node.js
 ```bash
 npm run dev
 ```
@@ -332,6 +353,45 @@ npm run start:high-mem
 ---
 
 ## Production развёртывание
+
+### Вариант 0: Bun (быстрая установка)
+
+Bun — это высокопроизводительный JavaScript runtime, совместимый с Node.js.
+Используйте скрипт развёртывания для быстрой установки:
+
+```bash
+cd backend/monolith
+
+# Полное развёртывание (установка + запуск)
+./scripts/deploy-bun.sh
+
+# Только установка зависимостей
+./scripts/deploy-bun.sh --install-only
+
+# Режим разработки с hot reload
+./scripts/deploy-bun.sh --dev
+
+# Production с PM2
+./scripts/deploy-bun.sh --pm2
+```
+
+#### Команды Bun
+
+| Команда | Описание |
+|---------|----------|
+| `bun run bun:deploy` | Полное развёртывание |
+| `bun run bun:deploy:dev` | Развёртывание в dev режиме |
+| `bun run bun:deploy:install` | Только установка зависимостей |
+| `bun run bun:deploy:pm2` | Развёртывание с PM2 |
+| `bun run bun:start` | Запуск сервера с Bun |
+| `bun run bun:dev` | Dev режим с watch |
+
+#### Преимущества Bun
+
+- **Быстрая установка**: в 3-10 раз быстрее npm
+- **Быстрый запуск**: меньше времени на холодный старт
+- **Совместимость**: работает с существующим кодом Node.js
+- **Автоустановка**: скрипт автоматически установит Bun, если его нет
 
 ### Вариант 1: PM2 (рекомендуется)
 

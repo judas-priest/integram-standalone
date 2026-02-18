@@ -39,7 +39,13 @@
     "test-ai-connection": "node scripts/test-ai-connection.js",
     "start:journey-agent": "node start-journey-agent.mjs",
     "journey-agent:status": "curl http://localhost:8081/api/purchase-journey-testing/status | jq",
-    "journey-agent:stop": "curl -X POST http://localhost:8081/api/purchase-journey-testing/stop"
+    "journey-agent:stop": "curl -X POST http://localhost:8081/api/purchase-journey-testing/stop",
+    "bun:deploy": "./scripts/deploy-bun.sh",
+    "bun:deploy:dev": "./scripts/deploy-bun.sh --dev",
+    "bun:deploy:install": "./scripts/deploy-bun.sh --install-only",
+    "bun:deploy:pm2": "./scripts/deploy-bun.sh --pm2",
+    "bun:start": "bun run src/index.js",
+    "bun:dev": "bun --watch run src/index.js"
   },
   "keywords": [
     "monolith",
