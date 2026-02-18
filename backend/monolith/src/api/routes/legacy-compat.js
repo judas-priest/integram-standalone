@@ -74,17 +74,442 @@ function generateXsrf(token, db) {
 
 // PHP Type constants (matching index.php)
 const TYPE = {
+  // Base types
+  HTML: 2,
+  SHORT: 3,
+  DATETIME: 4,
+  GRANT: 5,
+  PWD: 6,
+  BUTTON: 7,
+  CHARS: 8,
+  DATE: 9,
+  FILE: 10,
+  BOOLEAN: 11,
+  MEMO: 12,
+  NUMBER: 13,
+  SIGNED: 14,
+  CALCULATABLE: 15,
+  REPORT_COLUMN: 16,
+  PATH: 17,
+
+  // User types
   USER: 18,
   PASSWORD: 20,
+  REPORT: 22,
+  REP_COLS: 28,
   PHONE: 30,
   XSRF: 40,
   EMAIL: 41,
   ROLE: 42,
+  REP_JOIN: 44,
+  LEVEL: 47,
+  MASK: 49,
+  EXPORT: 55,
+  DELETE: 56,
+
+  ROLE_OBJECT: 116,
   ACTIVITY: 124,
   TOKEN: 125,
   SECRET: 130,
+
+  CONNECT: 226,
+  SETTINGS: 269,
   DATABASE: 271,
+  SETTINGS_TYPE: 271,
+  SETTINGS_VAL: 273,
 };
+
+// Reverse mapping for base types (for Format_Val functions)
+const REV_BASE_TYPE = {
+  [TYPE.HTML]: 'HTML',
+  [TYPE.SHORT]: 'SHORT',
+  [TYPE.DATETIME]: 'DATETIME',
+  [TYPE.GRANT]: 'GRANT',
+  [TYPE.PWD]: 'PWD',
+  [TYPE.BUTTON]: 'BUTTON',
+  [TYPE.CHARS]: 'CHARS',
+  [TYPE.DATE]: 'DATE',
+  [TYPE.FILE]: 'FILE',
+  [TYPE.BOOLEAN]: 'BOOLEAN',
+  [TYPE.MEMO]: 'MEMO',
+  [TYPE.NUMBER]: 'NUMBER',
+  [TYPE.SIGNED]: 'SIGNED',
+};
+
+// Store for grants per request (thread-local simulation)
+const grantStore = new Map();
+
+// ============================================================================
+// Grant/Permission System (Phase 4 - remaining 10%)
+// ============================================================================
+
+/**
+ * Load grants for a user's role from database
+ * Matches PHP's getGrants() function
+ * @param {Object} pool - MySQL pool
+ * @param {string} db - Database name
+ * @param {number} roleId - User's role ID
+ * @returns {Object} grants object
+ */
+async function getGrants(pool, db, roleId) {
+  const grants = {};
+
+  try {
+    const query = `
+      SELECT
+        gr.val AS obj,
+        COALESCE(def.val, '') AS lev,
+        mask.val AS mask,
+        exp.val AS exp,
+        del.val AS del
+      FROM ${db} gr
+      LEFT JOIN (${db} lev CROSS JOIN ${db} def) ON lev.up = gr.id AND def.id = lev.t AND def.t = ${TYPE.LEVEL}
+      LEFT JOIN ${db} mask ON mask.up = gr.id AND mask.t = ${TYPE.MASK}
+      LEFT JOIN ${db} exp ON exp.up = gr.id AND exp.t = ${TYPE.EXPORT}
+      LEFT JOIN ${db} del ON del.up = gr.id AND del.t = ${TYPE.DELETE}
+      WHERE gr.up = ? AND gr.t = ${TYPE.ROLE_OBJECT}
+    `;
+
+    const [rows] = await pool.query(query, [roleId]);
+
+    for (const row of rows) {
+      if (row.lev && row.lev.length > 0) {
+        grants[row.obj] = row.lev;
+      }
+      if (row.mask && row.mask.length > 0) {
+        if (!grants.mask) grants.mask = {};
+        if (!grants.mask[row.obj]) grants.mask[row.obj] = {};
+        grants.mask[row.obj][row.mask] = row.lev;
+      }
+      if (row.exp && row.exp.length > 0) {
+        if (!grants.EXPORT) grants.EXPORT = {};
+        grants.EXPORT[row.obj] = '1';
+      }
+      if (row.del && row.del.length > 0) {
+        if (!grants.DELETE) grants.DELETE = {};
+        grants.DELETE[row.obj] = '1';
+      }
+    }
+
+    logger.debug('[Grants] Loaded grants', { db, roleId, count: Object.keys(grants).length });
+  } catch (error) {
+    logger.error('[Grants] Error loading grants', { error: error.message, db, roleId });
+  }
+
+  return grants;
+}
+
+/**
+ * Check grant for an object/type
+ * Matches PHP's Check_Grant() function
+ * @param {Object} pool - MySQL pool
+ * @param {string} db - Database name
+ * @param {Object} grants - Loaded grants object
+ * @param {number} id - Object ID
+ * @param {number} t - Type ID (default: 0)
+ * @param {string} grant - Required grant level ("READ" or "WRITE", default: "WRITE")
+ * @param {string} username - Current username (admin bypasses checks)
+ * @returns {boolean} true if granted
+ */
+async function checkGrant(pool, db, grants, id, t = 0, grant = 'WRITE', username = '') {
+  // Admin always has access
+  if (username.toLowerCase() === 'admin') {
+    return true;
+  }
+
+  // Check explicit grant for type
+  if (t !== 0 && grants[t]) {
+    if (grants[t] === grant || grants[t] === 'WRITE') {
+      return true;
+    }
+    return false;
+  }
+
+  // Check explicit grant for object ID
+  if (grants[id]) {
+    if (grants[id] === grant || grants[id] === 'WRITE') {
+      return true;
+    }
+    return false;
+  }
+
+  // Need to check parent chain
+  try {
+    let query;
+    if (t === 0) {
+      query = `
+        SELECT
+          obj.t,
+          COALESCE(par.t, 1) AS par_typ,
+          COALESCE(par.id, 1) AS par_id,
+          COALESCE(arr.id, -1) AS arr,
+          obj.val AS ref
+        FROM ${db} obj
+        LEFT JOIN ${db} par ON obj.up > 1 AND par.id = obj.up
+        LEFT JOIN ${db} arr ON arr.up = par.t AND arr.t = obj.t
+        WHERE obj.id = ?
+        LIMIT 1
+      `;
+    } else if (id !== 1) {
+      query = `
+        SELECT
+          obj.t,
+          COALESCE(par.t, 1) AS par_typ,
+          COALESCE(par.id, 1) AS par_id,
+          COALESCE(arr.id, -1) AS arr,
+          -1 AS ref
+        FROM ${db} obj
+        JOIN ${db} par ON obj.up > 1 AND (par.t = obj.up OR par.id = obj.up)
+        LEFT JOIN ${db} arr ON arr.up = par.t AND arr.t = obj.t
+        WHERE par.id = ? AND (obj.t = ? OR obj.id = ?)
+        LIMIT 1
+      `;
+    } else {
+      // First level object
+      return grants[t] === grant || grants[t] === 'WRITE' || grants[1] === grant || grants[1] === 'WRITE';
+    }
+
+    const params = t === 0 ? [id] : [id, t, t];
+    const [rows] = await pool.query(query, params);
+
+    if (rows.length > 0) {
+      const row = rows[0];
+
+      // Check object type
+      if (grants[row.t]) {
+        if (grants[row.t] === grant || grants[row.t] === 'WRITE') {
+          return true;
+        }
+      }
+      // Check array membership
+      else if (grants[row.arr]) {
+        if (grants[row.arr] === grant || grants[row.arr] === 'WRITE') {
+          return true;
+        }
+      }
+      // Check reference
+      else if (grants[row.ref] && row.t !== TYPE.REP_COLS && row.t !== TYPE.ROLE_OBJECT) {
+        if (grants[row.ref] === grant || grants[row.ref] === 'WRITE') {
+          return true;
+        }
+      }
+      // Check parent type
+      else if (grants[row.par_typ]) {
+        if (grants[row.par_typ] === grant || grants[row.par_typ] === 'WRITE') {
+          return true;
+        }
+      }
+      // Check parent ID
+      else if (grants[row.par_id]) {
+        if (grants[row.par_id] === grant || grants[row.par_id] === 'WRITE') {
+          return true;
+        }
+      }
+      // Recursively check parent
+      else if (row.par_id > 1) {
+        return await checkGrant(pool, db, grants, row.par_id, 0, grant, username);
+      }
+    }
+  } catch (error) {
+    logger.error('[Grants] Error checking grant', { error: error.message, db, id, t });
+  }
+
+  return false;
+}
+
+/**
+ * Check grant for first-level (root) children
+ * Matches PHP's Grant_1level() function
+ */
+async function grant1Level(pool, db, grants, id, username = '') {
+  if (username.toLowerCase() === 'admin') {
+    return 'WRITE';
+  }
+
+  // Explicit rights
+  if (grants[id]) {
+    if (grants[id] === 'READ' || grants[id] === 'WRITE') {
+      return grants[id];
+    }
+  }
+
+  // ROOT rights
+  if (grants[1]) {
+    if (grants[1] === 'READ' || grants[1] === 'WRITE') {
+      return grants[1];
+    }
+  }
+
+  // Check parent of this as ref
+  try {
+    const query = `
+      SELECT req.up
+      FROM ${db} ref
+      LEFT JOIN ${db} req ON req.t = ref.id
+      WHERE ref.t = ? AND ref.up = 0
+    `;
+    const [rows] = await pool.query(query, [id]);
+
+    for (const row of rows) {
+      if (grants[row.up]) {
+        if (grants[row.up] === 'READ' || grants[row.up] === 'WRITE') {
+          return 'READ';
+        }
+      }
+    }
+  } catch (error) {
+    logger.error('[Grants] Error in grant1Level', { error: error.message, db, id });
+  }
+
+  return false;
+}
+
+// ============================================================================
+// Value Formatting Functions (Phase 4 - remaining 10%)
+// ============================================================================
+
+/**
+ * Format value for storage (input validation)
+ * Matches PHP's Format_Val() function
+ */
+function formatVal(typeId, val, tzone = 0) {
+  if (val === 'NULL' || val === null) {
+    return val;
+  }
+
+  const baseType = REV_BASE_TYPE[typeId];
+  if (!baseType) {
+    return val;
+  }
+
+  switch (baseType) {
+    case 'DATE':
+      if (val && !val.startsWith('[') && !val.startsWith('_request_.')) {
+        val = String(val).trim();
+        // ISO format YYYY[-/.]MM[-/.]DD
+        const isoMatch = val.match(/^(\d{4})[-\/.]?(\d{2})[-\/.]?(\d{2})/);
+        if (isoMatch) {
+          return isoMatch[1] + isoMatch[2] + isoMatch[3];
+        }
+        // DD/MM/YYYY format
+        const parts = val.split(/[\/., ]/);
+        const dy = parts[2] ? (parts[2].length === 4 ? parseInt(parts[2]) : 2000 + parseInt(parts[2])) : new Date().getFullYear();
+        const dm = parts[1] ? parseInt(parts[1]) : new Date().getMonth() + 1;
+        const dd = parseInt(parts[0]) || 1;
+        return String(dy) + String(dm).padStart(2, '0') + String(dd).padStart(2, '0');
+      }
+      break;
+
+    case 'NUMBER':
+      const numVal = parseInt(String(val).replace(/,/g, '.').replace(/ /g, ''));
+      if (numVal !== 0) {
+        return numVal;
+      }
+      break;
+
+    case 'BOOLEAN':
+      if (val === '' || String(val).toLowerCase() === 'false' || val === '-1' || val === ' ') {
+        return '';
+      }
+      return '1';
+
+    case 'SIGNED':
+      const signedVal = parseFloat(String(val).replace(/,/g, '.').replace(/ /g, '').replace(/\u00A0/g, ''));
+      if (signedVal !== 0) {
+        return signedVal;
+      }
+      break;
+
+    case 'DATETIME':
+      if (val && !String(val).startsWith('[')) {
+        val = String(val).trim();
+        if (parseInt(val) > 10000) {
+          // Already a timestamp
+          return parseInt(val) - tzone;
+        }
+        const parsed = Date.parse(val);
+        if (!isNaN(parsed)) {
+          return Math.floor(parsed / 1000) - tzone;
+        }
+      }
+      break;
+  }
+
+  return val;
+}
+
+/**
+ * Format value for display (output formatting)
+ * Matches PHP's Format_Val_View() function
+ */
+function formatValView(typeId, val, tzone = 0) {
+  if (val === '' || val === null) {
+    return '';
+  }
+
+  const baseType = REV_BASE_TYPE[typeId];
+  if (!baseType) {
+    return val;
+  }
+
+  switch (baseType) {
+    case 'DATE':
+      if (val) {
+        const valStr = String(val);
+        if (valStr.length > 8) {
+          // DATETIME stored as timestamp
+          const date = new Date((parseInt(val) + tzone) * 1000);
+          return date.toLocaleDateString('ru-RU');
+        }
+        // YYYYMMDD format
+        return valStr.slice(6, 8) + '.' + valStr.slice(4, 6) + '.' + valStr.slice(0, 4);
+      }
+      break;
+
+    case 'DATETIME':
+      if (val) {
+        const date = new Date((parseInt(val) + tzone) * 1000);
+        return date.toLocaleString('ru-RU');
+      }
+      break;
+
+    case 'BOOLEAN':
+      return val ? 'X' : '';
+
+    case 'NUMBER':
+      if (val !== 0) {
+        return String(parseInt(val));
+      }
+      break;
+
+    case 'SIGNED':
+      if (val !== 0) {
+        return String(parseFloat(val));
+      }
+      break;
+  }
+
+  return val;
+}
+
+/**
+ * Get alignment for column based on type
+ * Matches PHP's Get_Align() function
+ */
+function getAlign(typeId) {
+  const baseType = REV_BASE_TYPE[typeId];
+  switch (baseType) {
+    case 'PWD':
+    case 'DATE':
+    case 'BOOLEAN':
+      return 'CENTER';
+    case 'NUMBER':
+    case 'SIGNED':
+      return 'RIGHT';
+    default:
+      return 'LEFT';
+  }
+}
 
 /**
  * Validate database name (matches PHP DB_MASK)
@@ -1026,6 +1451,129 @@ router.all('/:db/_list/:typeId', async (req, res) => {
     });
   } catch (error) {
     logger.error('[Legacy _list] Error', { error: error.message, db });
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * _list_join - List objects with multi-join queries
+ * GET/POST /:db/_list_join/:typeId
+ * Parameters: up (parent), LIMIT, F (offset/from), q (search), join (comma-separated requisite IDs to join)
+ *
+ * This endpoint supports complex multi-join queries that fetch object data
+ * along with requisite values in a single query.
+ */
+router.all('/:db/_list_join/:typeId', async (req, res) => {
+  const { db, typeId } = req.params;
+
+  if (!isValidDbName(db)) {
+    return res.status(400).json({ error: 'Invalid database' });
+  }
+
+  try {
+    const pool = getPool();
+    const type = parseInt(typeId, 10);
+    const parentId = req.query.up !== undefined || req.body.up !== undefined
+      ? parseInt(req.query.up || req.body.up, 10)
+      : null;
+    const limit = parseInt(req.query.LIMIT || req.body.LIMIT || '50', 10);
+    const offset = parseInt(req.query.F || req.body.F || '0', 10);
+    const search = req.query.q || req.body.q || '';
+    const joinReqs = (req.query.join || req.body.join || '').split(',').filter(Boolean).map(id => parseInt(id, 10));
+
+    // Get type requisites for join
+    const [reqRows] = await pool.query(
+      `SELECT id, val, t FROM ${db} WHERE up = ? ORDER BY ord`,
+      [type]
+    );
+
+    // Parse requisite info
+    const requisites = reqRows.map(r => {
+      const aliasMatch = r.val.match(/:ALIAS=([^:]+):/);
+      return {
+        id: r.id,
+        name: r.val.replace(/:ALIAS=[^:]+:/g, '').replace(/:!NULL:/g, '').replace(/:MULTI:/g, '').trim(),
+        alias: aliasMatch ? aliasMatch[1] : `req_${r.id}`,
+        type: r.t
+      };
+    });
+
+    // Determine which requisites to join
+    const reqsToJoin = joinReqs.length > 0
+      ? requisites.filter(r => joinReqs.includes(r.id))
+      : requisites.slice(0, 5); // Default: first 5 requisites
+
+    // Build multi-join query
+    let selectParts = ['obj.id', 'obj.val', 'obj.up', 'obj.t', 'obj.ord'];
+    let joinParts = [];
+    let joinIdx = 0;
+
+    for (const req of reqsToJoin) {
+      const alias = `r${joinIdx++}`;
+      selectParts.push(`${alias}.val AS ${req.alias}`);
+      joinParts.push(`LEFT JOIN ${db} ${alias} ON ${alias}.up = obj.id AND ${alias}.t = ${req.id}`);
+    }
+
+    let query = `SELECT ${selectParts.join(', ')} FROM ${db} obj ${joinParts.join(' ')} WHERE obj.t = ?`;
+    let countQuery = `SELECT COUNT(*) as total FROM ${db} WHERE t = ?`;
+    const params = [type];
+    const countParams = [type];
+
+    if (parentId !== null) {
+      query += ` AND obj.up = ?`;
+      countQuery += ` AND up = ?`;
+      params.push(parentId);
+      countParams.push(parentId);
+    }
+
+    if (search) {
+      query += ` AND obj.val LIKE ?`;
+      countQuery += ` AND val LIKE ?`;
+      params.push(`%${search}%`);
+      countParams.push(`%${search}%`);
+    }
+
+    query += ` ORDER BY obj.ord LIMIT ? OFFSET ?`;
+    params.push(limit, offset);
+
+    const [rows] = await pool.query(query, params);
+    const [countRows] = await pool.query(countQuery, countParams);
+    const total = countRows[0]?.total || 0;
+
+    // Format results
+    const objects = rows.map(row => {
+      const obj = {
+        id: row.id,
+        val: row.val,
+        up: row.up,
+        t: row.t,
+        ord: row.ord,
+        reqs: {}
+      };
+
+      // Add requisite values
+      for (const req of reqsToJoin) {
+        obj.reqs[req.alias] = row[req.alias] || null;
+        // Also add formatted value
+        if (row[req.alias]) {
+          obj.reqs[`${req.alias}_formatted`] = formatValView(req.type, row[req.alias]);
+        }
+      }
+
+      return obj;
+    });
+
+    logger.info('[Legacy _list_join] Multi-join query', { db, type, joinedReqs: reqsToJoin.length, rows: objects.length });
+
+    res.json({
+      data: objects,
+      total,
+      limit,
+      offset,
+      requisites: reqsToJoin.map(r => ({ id: r.id, name: r.name, alias: r.alias, type: r.type }))
+    });
+  } catch (error) {
+    logger.error('[Legacy _list_join] Error', { error: error.message, db });
     res.status(500).json({ error: error.message });
   }
 });
@@ -2495,15 +3043,177 @@ router.get('/:db/dir_admin', async (req, res) => {
 });
 
 // ============================================================================
-// Phase 3: Report-related endpoints (basic implementation)
+// Phase 4: Full Report System with Filtering (remaining 10%)
 // ============================================================================
 
 /**
- * Report generation endpoint
+ * Compile a report - get columns, joins, and prepare query
+ * Matches PHP's Compile_Report() function
+ */
+async function compileReport(pool, db, reportId) {
+  const report = {
+    id: reportId,
+    header: '',
+    head: [],
+    columns: [],
+    types: {},
+    names: {},
+    baseOut: {},
+    joins: [],
+    filters: {},
+    totals: {},
+    rownum: 0
+  };
+
+  try {
+    // Get report definition
+    const [reportRows] = await pool.query(
+      `SELECT id, val, t, up FROM ${db} WHERE id = ?`,
+      [reportId]
+    );
+
+    if (reportRows.length === 0) {
+      return null;
+    }
+
+    report.header = reportRows[0].val;
+    report.parentType = reportRows[0].up;
+
+    // Get report columns (REP_COLS type)
+    const [colRows] = await pool.query(
+      `SELECT col.id, col.val, col.t, col.ord,
+              typ.val AS typeName, typ.t AS baseType
+       FROM ${db} col
+       LEFT JOIN ${db} typ ON typ.id = col.t
+       WHERE col.up = ? AND col.t = ${TYPE.REP_COLS}
+       ORDER BY col.ord`,
+      [reportId]
+    );
+
+    for (const col of colRows) {
+      const colName = col.val.replace(/ /g, '_');
+      report.head.push(col.val);
+      report.names[report.head.length - 1] = colName;
+      report.types[report.head.length - 1] = col.t;
+      report.baseOut[report.head.length - 1] = col.baseType || TYPE.CHARS;
+      report.columns.push({
+        id: col.id,
+        name: col.val,
+        alias: colName,
+        type: col.t,
+        baseType: col.baseType,
+        order: col.ord
+      });
+    }
+
+    // Get report joins (REP_JOIN type)
+    const [joinRows] = await pool.query(
+      `SELECT id, val, t FROM ${db} WHERE up = ? AND t = ${TYPE.REP_JOIN}`,
+      [reportId]
+    );
+
+    for (const join of joinRows) {
+      report.joins.push({
+        id: join.id,
+        table: join.val,
+        type: join.t
+      });
+    }
+
+    logger.debug('[Report] Compiled report', { db, reportId, columns: report.columns.length, joins: report.joins.length });
+
+  } catch (error) {
+    logger.error('[Report] Error compiling report', { error: error.message, db, reportId });
+    return null;
+  }
+
+  return report;
+}
+
+/**
+ * Execute report query with filters
+ */
+async function executeReport(pool, db, report, filters = {}, limit = 100, offset = 0) {
+  const results = {
+    data: [],
+    totals: {},
+    rownum: 0
+  };
+
+  try {
+    // Build WHERE clause from filters
+    const whereClauses = [];
+    const whereParams = [];
+
+    for (const [colName, filter] of Object.entries(filters)) {
+      if (filter.from !== undefined && filter.from !== '') {
+        whereClauses.push(`${colName} >= ?`);
+        whereParams.push(filter.from);
+      }
+      if (filter.to !== undefined && filter.to !== '') {
+        whereClauses.push(`${colName} <= ?`);
+        whereParams.push(filter.to);
+      }
+      if (filter.eq !== undefined && filter.eq !== '') {
+        whereClauses.push(`${colName} = ?`);
+        whereParams.push(filter.eq);
+      }
+      if (filter.like !== undefined && filter.like !== '') {
+        whereClauses.push(`${colName} LIKE ?`);
+        whereParams.push(`%${filter.like}%`);
+      }
+    }
+
+    // Build query - simplified version for general type listing
+    let query = `SELECT id, val, up, t, ord FROM ${db}`;
+
+    if (report.parentType && report.parentType > 0) {
+      whereClauses.push('t = ?');
+      whereParams.push(report.parentType);
+    }
+
+    if (whereClauses.length > 0) {
+      query += ' WHERE ' + whereClauses.join(' AND ');
+    }
+
+    query += ' ORDER BY ord';
+    query += ` LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}`;
+
+    const [rows] = await pool.query(query, whereParams);
+
+    results.data = rows;
+    results.rownum = rows.length;
+
+    // Calculate totals for numeric columns
+    for (const col of report.columns) {
+      const baseType = REV_BASE_TYPE[col.baseType];
+      if (baseType === 'NUMBER' || baseType === 'SIGNED') {
+        let total = 0;
+        for (const row of rows) {
+          if (row[col.alias]) {
+            total += parseFloat(row[col.alias]) || 0;
+          }
+        }
+        results.totals[col.alias] = total;
+      }
+    }
+
+    logger.debug('[Report] Executed report', { db, reportId: report.id, rows: results.rownum });
+
+  } catch (error) {
+    logger.error('[Report] Error executing report', { error: error.message, db, reportId: report.id });
+  }
+
+  return results;
+}
+
+/**
+ * Report generation endpoint with full filtering support
  * GET/POST /:db/report/:reportId
  */
 router.all('/:db/report/:reportId?', async (req, res) => {
   const { db, reportId } = req.params;
+  const { execute, format } = req.query;
 
   if (!isValidDbName(db)) {
     return res.status(400).json({ error: 'Invalid database' });
@@ -2516,7 +3226,7 @@ router.all('/:db/report/:reportId?', async (req, res) => {
     if (!id) {
       // List available reports
       const [rows] = await pool.query(
-        `SELECT id, val AS name, ord FROM ${db} WHERE t = 22 ORDER BY ord`  // TYPE 22 = REPORT
+        `SELECT id, val AS name, ord FROM ${db} WHERE t = ${TYPE.REPORT} ORDER BY ord`
       );
 
       return res.json({
@@ -2529,38 +3239,98 @@ router.all('/:db/report/:reportId?', async (req, res) => {
       });
     }
 
-    // Get report definition
-    const [reportRows] = await pool.query(
-      `SELECT id, val AS name, t, up FROM ${db} WHERE id = ?`,
-      [id]
-    );
+    // Compile report
+    const report = await compileReport(pool, db, id);
 
-    if (reportRows.length === 0) {
+    if (!report) {
       return res.status(404).json({ error: 'Report not found' });
     }
 
-    // Get report columns
-    const [columnRows] = await pool.query(
-      `SELECT id, val AS name, t AS type, ord FROM ${db} WHERE up = ? ORDER BY ord`,
-      [id]
-    );
+    // If execution is requested, run the report
+    if (execute || req.method === 'POST') {
+      // Parse filters from request
+      const filters = {};
+      const params = { ...req.query, ...req.body };
 
-    const report = {
-      id: reportRows[0].id,
-      name: reportRows[0].name,
-      columns: columnRows.map(c => ({
-        id: c.id,
-        name: c.name,
-        type: c.type,
-        order: c.ord
-      }))
-    };
+      for (const col of report.columns) {
+        const colName = col.alias;
+        const filter = {};
 
+        if (params[`FR_${colName}`]) {
+          filter.from = params[`FR_${colName}`];
+        }
+        if (params[`TO_${colName}`]) {
+          filter.to = params[`TO_${colName}`];
+        }
+        if (params[`EQ_${colName}`]) {
+          filter.eq = params[`EQ_${colName}`];
+        }
+        if (params[`LIKE_${colName}`]) {
+          filter.like = params[`LIKE_${colName}`];
+        }
+
+        if (Object.keys(filter).length > 0) {
+          filters[colName] = filter;
+        }
+      }
+
+      const limit = params.LIMIT || params.limit || 100;
+      const offset = params.F || params.offset || 0;
+
+      const results = await executeReport(pool, db, report, filters, limit, offset);
+
+      // Format data for display
+      const formattedData = results.data.map(row => {
+        const formatted = { ...row };
+        for (const col of report.columns) {
+          if (formatted[col.alias] !== undefined) {
+            formatted[`${col.alias}_formatted`] = formatValView(col.baseType, formatted[col.alias]);
+          }
+        }
+        return formatted;
+      });
+
+      logger.info('[Legacy report] Report executed', { db, reportId: id, rows: results.rownum });
+
+      // Export formats
+      if (format === 'csv') {
+        const headers = report.columns.map(c => c.name).join(',');
+        const csvRows = results.data.map(row =>
+          report.columns.map(c => `"${(row[c.alias] || '').toString().replace(/"/g, '""')}"`).join(',')
+        ).join('\n');
+
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename=report_${id}.csv`);
+        return res.send(headers + '\n' + csvRows);
+      }
+
+      return res.json({
+        success: true,
+        report: {
+          id: report.id,
+          name: report.header,
+          columns: report.columns
+        },
+        data: formattedData,
+        totals: results.totals,
+        rownum: results.rownum,
+        filters: Object.keys(filters).length > 0 ? filters : undefined
+      });
+    }
+
+    // Return report definition only
     logger.info('[Legacy report] Report metadata retrieved', { db, reportId: id });
 
     res.json({
       success: true,
-      report
+      report: {
+        id: report.id,
+        name: report.header,
+        columns: report.columns,
+        head: report.head,
+        types: report.types,
+        filters: report.filters
+      }
     });
   } catch (error) {
     logger.error('[Legacy report] Error', { error: error.message, db });
@@ -2569,12 +3339,12 @@ router.all('/:db/report/:reportId?', async (req, res) => {
 });
 
 /**
- * Export data endpoint (CSV format)
+ * Export data endpoint with full requisite support
  * GET /:db/export/:typeId
  */
 router.get('/:db/export/:typeId', async (req, res) => {
   const { db, typeId } = req.params;
-  const { format = 'csv' } = req.query;
+  const { format = 'csv', include_reqs = '1' } = req.query;
 
   if (!isValidDbName(db)) {
     return res.status(400).json({ error: 'Invalid database' });
@@ -2584,29 +3354,222 @@ router.get('/:db/export/:typeId', async (req, res) => {
     const pool = getPool();
     const type = parseInt(typeId, 10);
 
+    // Get type requisites for header
+    const [reqRows] = await pool.query(
+      `SELECT id, val, t FROM ${db} WHERE up = ? ORDER BY ord`,
+      [type]
+    );
+
+    // Parse requisite names and aliases
+    const requisites = reqRows.map(r => {
+      const aliasMatch = r.val.match(/:ALIAS=([^:]+):/);
+      return {
+        id: r.id,
+        name: r.val.replace(/:ALIAS=[^:]+:/g, '').replace(/:!NULL:/g, '').replace(/:MULTI:/g, '').trim(),
+        alias: aliasMatch ? aliasMatch[1] : null,
+        type: r.t
+      };
+    });
+
     // Get objects of the type
     const [rows] = await pool.query(
       `SELECT id, val, up, ord FROM ${db} WHERE t = ? ORDER BY ord`,
       [type]
     );
 
-    if (format === 'json') {
-      return res.json(rows);
+    // If include requisites, fetch all requisite values
+    let exportData = rows;
+    if (include_reqs === '1' && requisites.length > 0) {
+      const objectIds = rows.map(r => r.id);
+
+      if (objectIds.length > 0) {
+        // Get all requisite values for these objects
+        const [reqValues] = await pool.query(
+          `SELECT up AS obj_id, t AS req_type, val FROM ${db} WHERE up IN (?) AND t IN (?)`,
+          [objectIds, requisites.map(r => r.id)]
+        );
+
+        // Build a map of requisite values per object
+        const reqValueMap = {};
+        for (const rv of reqValues) {
+          if (!reqValueMap[rv.obj_id]) reqValueMap[rv.obj_id] = {};
+          reqValueMap[rv.obj_id][rv.req_type] = rv.val;
+        }
+
+        // Merge requisite values into export data
+        exportData = rows.map(row => {
+          const data = { ...row };
+          for (const req of requisites) {
+            const key = req.alias || `req_${req.id}`;
+            data[key] = reqValueMap[row.id] ? reqValueMap[row.id][req.id] || '' : '';
+          }
+          return data;
+        });
+      }
     }
 
-    // CSV export
-    const csvHeader = 'id,value,parent,order\n';
-    const csvRows = rows.map(r => `${r.id},"${(r.val || '').replace(/"/g, '""')}",${r.up},${r.ord}`).join('\n');
+    if (format === 'json') {
+      logger.info('[Legacy export] Data exported (JSON)', { db, typeId: type, count: exportData.length });
+      return res.json({
+        success: true,
+        type: type,
+        requisites: requisites,
+        data: exportData,
+        count: exportData.length
+      });
+    }
+
+    // CSV export with requisites
+    const baseHeaders = ['id', 'value', 'parent', 'order'];
+    const reqHeaders = requisites.map(r => r.alias || r.name);
+    const allHeaders = [...baseHeaders, ...reqHeaders];
+
+    const csvHeader = allHeaders.join(',') + '\n';
+    const csvRows = exportData.map(r => {
+      const baseVals = [r.id, `"${(r.val || '').replace(/"/g, '""')}"`, r.up, r.ord];
+      const reqVals = requisites.map(req => {
+        const key = req.alias || `req_${req.id}`;
+        const val = r[key] || '';
+        return `"${String(val).replace(/"/g, '""')}"`;
+      });
+      return [...baseVals, ...reqVals].join(',');
+    }).join('\n');
+
     const csv = csvHeader + csvRows;
 
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename=${db}_type_${typeId}.csv`);
 
-    logger.info('[Legacy export] Data exported', { db, typeId: type, format, count: rows.length });
+    logger.info('[Legacy export] Data exported (CSV)', { db, typeId: type, format, count: rows.length });
 
     res.send(csv);
   } catch (error) {
     logger.error('[Legacy export] Error', { error: error.message, db });
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// Phase 4: Grants Endpoint (remaining 10%)
+// ============================================================================
+
+/**
+ * Get user grants for the current session
+ * GET /:db/grants
+ */
+router.get('/:db/grants', async (req, res) => {
+  const { db } = req.params;
+
+  if (!isValidDbName(db)) {
+    return res.status(400).json({ error: 'Invalid database' });
+  }
+
+  try {
+    const pool = getPool();
+
+    // Get token from cookie or header
+    const token = req.cookies[db] || req.headers.authorization?.replace(/^Bearer\s+/i, '');
+
+    if (!token) {
+      return res.status(401).json({ error: 'No token provided' });
+    }
+
+    // Validate token and get user role
+    const [userRows] = await pool.query(`
+      SELECT u.id, u.val AS username, role_def.id AS role_id, role_def.val AS role_name
+      FROM ${db} tok
+      JOIN ${db} u ON tok.up = u.id
+      LEFT JOIN (${db} r CROSS JOIN ${db} role_def) ON r.up = u.id AND role_def.id = r.t AND role_def.t = ${TYPE.ROLE}
+      WHERE tok.val = ? AND tok.t = ${TYPE.TOKEN}
+      LIMIT 1
+    `, [token]);
+
+    if (userRows.length === 0) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    const user = userRows[0];
+
+    // Get grants for the user's role
+    const grants = await getGrants(pool, db, user.role_id);
+
+    logger.info('[Legacy grants] Grants retrieved', { db, username: user.username, grantCount: Object.keys(grants).length });
+
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role_name,
+        roleId: user.role_id
+      },
+      grants: grants
+    });
+  } catch (error) {
+    logger.error('[Legacy grants] Error', { error: error.message, db });
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Check grant for specific object/type
+ * POST /:db/check_grant
+ */
+router.post('/:db/check_grant', async (req, res) => {
+  const { db } = req.params;
+  const { id, t, grant = 'READ' } = req.body;
+
+  if (!isValidDbName(db)) {
+    return res.status(400).json({ error: 'Invalid database' });
+  }
+
+  if (!id) {
+    return res.status(400).json({ error: 'Object ID required' });
+  }
+
+  try {
+    const pool = getPool();
+
+    // Get token from cookie or header
+    const token = req.cookies[db] || req.headers.authorization?.replace(/^Bearer\s+/i, '');
+
+    if (!token) {
+      return res.status(401).json({ error: 'No token provided' });
+    }
+
+    // Validate token and get user
+    const [userRows] = await pool.query(`
+      SELECT u.id, u.val AS username, role_def.id AS role_id
+      FROM ${db} tok
+      JOIN ${db} u ON tok.up = u.id
+      LEFT JOIN (${db} r CROSS JOIN ${db} role_def) ON r.up = u.id AND role_def.id = r.t AND role_def.t = ${TYPE.ROLE}
+      WHERE tok.val = ? AND tok.t = ${TYPE.TOKEN}
+      LIMIT 1
+    `, [token]);
+
+    if (userRows.length === 0) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    const user = userRows[0];
+
+    // Get grants
+    const grants = await getGrants(pool, db, user.role_id);
+
+    // Check specific grant
+    const hasGrant = await checkGrant(pool, db, grants, parseInt(id), parseInt(t) || 0, grant.toUpperCase(), user.username);
+
+    logger.info('[Legacy check_grant] Grant checked', { db, id, t, grant, hasGrant });
+
+    res.json({
+      success: true,
+      granted: hasGrant,
+      id: parseInt(id),
+      type: parseInt(t) || 0,
+      level: grant.toUpperCase()
+    });
+  } catch (error) {
+    logger.error('[Legacy check_grant] Error', { error: error.message, db });
     res.status(500).json({ error: error.message });
   }
 });
