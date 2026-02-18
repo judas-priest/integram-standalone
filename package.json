@@ -8,10 +8,11 @@
     "services/*"
   ],
   "scripts": {
-    "test:packages": "npm run test:common && npm run test:database && npm run test:auth",
+    "test:packages": "npm run test:common && npm run test:database && npm run test:auth && npm run test:core-data",
     "test:common": "cd packages/@integram/common && npm test",
     "test:database": "cd packages/@integram/database && npm test",
     "test:auth": "cd services/auth-service && npm test",
+    "test:core-data": "cd services/core-data-service && npm test",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",

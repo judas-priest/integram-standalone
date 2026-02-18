@@ -1,0 +1,36 @@
+{
+  "name": "@integram/core-data-service",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Core data service for Integram - handles CRUD operations, queries, and data management with full PHP compatibility",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src --fix"
+  },
+  "keywords": [
+    "integram",
+    "core-data",
+    "crud",
+    "database",
+    "queries"
+  ],
+  "dependencies": {
+    "@integram/common": "^1.0.0",
+    "@integram/database": "^1.0.0",
+    "@integram/logger": "^1.0.0",
+    "express": "^4.21.0"
+  },
+  "devDependencies": {
+    "vitest": "^1.0.0",
+    "supertest": "^6.3.0"
+  },
+  "author": "Integram Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
