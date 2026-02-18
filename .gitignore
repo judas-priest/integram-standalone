@@ -51,3 +51,5 @@ backend/monolith/data/
 **/data/.master_key
 **/session_registry.json
 **/token_registry.json
+# Modern-CLI project directory
+.modern/
