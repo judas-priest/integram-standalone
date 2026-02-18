@@ -789,13 +789,22 @@ console.log(types.data);
 
 ## Дополнительные ресурсы
 
-- [API v2 Documentation](backend/monolith/docs/API_V2.md)
-- [Modern API Format Specification](docs/api/MODERN_API_FORMAT.md)
-- [API Examples](docs/api/EXAMPLES.md)
-- [OpenAPI Specification](docs/api/openapi-v2.yaml)
+### Основная документация
+- [Полная документация эндпоинтов](API_ENDPOINTS.md) - Все API эндпоинты с форматами запросов/ответов
+- [Подключение базы данных](DATABASE_CONNECTION.md) - Настройка MySQL/MariaDB
+- [План совместимости с PHP](LEGACY_PHP_COMPATIBILITY_PLAN.md) - Анализ недостающих функций
+
+### API версии 2
+- [API v2 Documentation](../backend/monolith/docs/API_V2.md)
+- [Modern API Format Specification](api/MODERN_API_FORMAT.md)
+- [API Examples](api/EXAMPLES.md)
+- [OpenAPI Specification](api/openapi-v2.yaml)
+
+### Миграция
+- [Скрипты миграции БД](../scripts/db-migration/README.md)
 
 ---
 
-**Версия документации:** 1.0.0
-**Дата обновления:** 2025-02-16
+**Версия документации:** 1.1.0
+**Дата обновления:** 2026-02-18
 **Статус:** Production
