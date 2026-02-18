@@ -1,17 +1,145 @@
 // Minimal Integram Backend Server for integram-standalone
-// This server works "out of the box" without database configuration
+// This server provides real database authentication compatible with PHP backend
 import './config/env.js';
 
 import express from 'express';
 import cors from 'cors';
 import http from 'http';
+import crypto from 'crypto';
 import { WebSocketServer } from 'ws';
 
 const app = express();
 const PORT = process.env.PORT || 8081;
 const HOST = process.env.HOST || '0.0.0.0';
 
+// ============================================================================
+// Database Configuration
+// ============================================================================
+
+// Database connection configuration from environment
+const DB_CONFIG = {
+  host: process.env.DB_HOST || 'localhost',
+  port: parseInt(process.env.DB_PORT || '3306', 10),
+  user: process.env.DB_USER || 'integram',
+  password: process.env.DB_PASSWORD || '',
+  connectionLimit: 10,
+  waitForConnections: true,
+  queueLimit: 0,
+};
+
+// Type constants (matching PHP index.php)
+const TYPE = {
+  USER: 18,
+  PASSWORD: 20,
+  TOKEN: 125,
+  XSRF: 40,
+  ACTIVITY: 124,
+  EMAIL: 41,
+  ROLE: 42,
+  SECRET: 130,
+};
+
+// Auth configuration
+const AUTH_SALT = process.env.AUTH_SALT || 'DronedocSalt2025';
+const COOKIES_EXPIRE = parseInt(process.env.AUTH_COOKIE_EXPIRE || '2592000', 10);
+
+// Database pool (lazy initialized)
+let dbPool = null;
+let mysql2 = null;
+let dbConnected = false;
+
+/**
+ * Initialize database connection pool
+ */
+async function initDatabase() {
+  if (dbPool) return dbPool;
+
+  try {
+    mysql2 = await import('mysql2/promise');
+    dbPool = mysql2.default.createPool(DB_CONFIG);
+
+    // Test connection
+    const connection = await dbPool.getConnection();
+    console.log('✅ Database connected:', DB_CONFIG.host);
+    connection.release();
+    dbConnected = true;
+
+    return dbPool;
+  } catch (error) {
+    console.warn('⚠️  Database not available:', error.message);
+    console.warn('⚠️  Running in mock mode (no real authentication)');
+    dbPool = null;
+    dbConnected = false;
+    return null;
+  }
+}
+
+// ============================================================================
+// Authentication Helper Functions
+// ============================================================================
+
+/**
+ * Salt a password according to PHP Salt() function
+ * PHP: function Salt($u, $val) { return SALT."$u$z$val"; }
+ */
+function saltPassword(username, database, password) {
+  const u = username.toUpperCase();
+  return `${AUTH_SALT}${u}${database}${password}`;
+}
+
+/**
+ * Hash password according to PHP password format
+ * PHP: $pwd = sha1(Salt($u, $p))
+ */
+function hashPassword(username, database, password) {
+  const salted = saltPassword(username, database, password);
+  return crypto.createHash('sha1').update(salted).digest('hex');
+}
+
+/**
+ * Generate a new token (matches PHP: md5(microtime(TRUE)))
+ */
+function generateToken() {
+  const microtime = Date.now() / 1000 + Math.random();
+  return crypto.createHash('md5').update(microtime.toString()).digest('hex');
+}
+
+/**
+ * Generate XSRF token
+ * PHP: function xsrf($a, $b) { return substr(sha1(Salt($a, $b)), 0, 22); }
+ */
+function generateXsrf(token, username) {
+  const salted = saltPassword(token, '', username);
+  const hash = crypto.createHash('sha1').update(salted).digest('hex');
+  return hash.substring(0, 22);
+}
+
+/**
+ * Query the database
+ */
+async function query(sql, params = []) {
+  if (!dbPool) {
+    throw new Error('Database not connected');
+  }
+  const [rows] = await dbPool.query(sql, params);
+  return rows;
+}
+
+/**
+ * Execute an INSERT/UPDATE/DELETE
+ */
+async function execute(sql, params = []) {
+  if (!dbPool) {
+    throw new Error('Database not connected');
+  }
+  const [result] = await dbPool.execute(sql, params);
+  return result;
+}
+
+// ============================================================================
 // Middleware
+// ============================================================================
+
 app.use(cors({
   origin: process.env.CORS_ORIGIN || '*',
   credentials: true,
@@ -30,6 +158,7 @@ app.get('/health', (req, res) => {
     status: 'ok',
     service: 'integram-standalone-backend',
     version: '1.0.0',
+    database: dbConnected ? 'connected' : 'disconnected',
     timestamp: new Date().toISOString()
   });
 });
@@ -39,6 +168,7 @@ app.get('/api/health', (req, res) => {
     status: 'ok',
     service: 'integram-standalone-backend',
     version: '1.0.0',
+    database: dbConnected ? 'connected' : 'disconnected',
     timestamp: new Date().toISOString()
   });
 });
@@ -52,7 +182,8 @@ app.get('/', (req, res) => {
     name: 'Integram Standalone Backend',
     version: '1.0.0',
     status: 'running',
-    description: 'Minimal backend server for Integram standalone deployment',
+    database: dbConnected ? 'connected' : 'disconnected (mock mode)',
+    description: 'Backend server for Integram standalone deployment with real DB authentication',
     endpoints: {
       health: '/health',
       api: {
@@ -83,6 +214,7 @@ app.get('/api/info', (req, res) => {
     node: process.version,
     uptime: process.uptime(),
     memory: process.memoryUsage(),
+    database: dbConnected ? 'connected' : 'disconnected',
     timestamp: new Date().toISOString()
   });
 });
@@ -128,24 +260,251 @@ app.get('/api/chat/history/:chatId', (req, res) => {
 
 // ============================================================================
 // Integram Legacy API Routes (PHP-compatible)
-// These routes match the PHP backend API format
+// These routes provide REAL database authentication matching PHP backend
 // ============================================================================
 
-// Authentication endpoint (POST /:db/auth)
-app.post('/api/:db/auth', (req, res) => {
+/**
+ * Authentication endpoint (POST /:db/auth)
+ * Maps to PHP: case "pwd" in index.php
+ *
+ * Supports:
+ * - login/pwd format (PHP legacy)
+ * - user/pwd format
+ * - email/password format
+ */
+app.post('/api/:db/auth', async (req, res) => {
   const { db } = req.params;
-  const { user, pwd, login } = req.body;
+  const username = req.body.login || req.body.user || req.body.email || req.body.u;
+  const password = req.body.pwd || req.body.password || req.body.p;
 
-  // For now, return a mock response matching PHP format
-  res.json({
-    success: true,
-    message: 'Authentication endpoint',
-    db,
-    // Legacy format response
-    user: user || login,
-    token: 'mock-token-' + Date.now().toString(36),
-    xsrf: 'mock-xsrf-' + Date.now().toString(36).substring(0, 22)
-  });
+  // Validate input
+  if (!username || !password) {
+    return res.status(400).json({
+      success: false,
+      error: 'Username and password are required',
+      code: 'MISSING_CREDENTIALS'
+    });
+  }
+
+  // If database is not connected, return mock response
+  if (!dbConnected) {
+    console.warn(`⚠️  [AUTH] Mock mode - no database connection`);
+    return res.json({
+      success: true,
+      message: 'Mock authentication (database not connected)',
+      db,
+      user: username,
+      token: 'mock-token-' + generateToken(),
+      xsrf: 'mock-xsrf-' + generateXsrf(Date.now().toString(), username),
+      mock: true
+    });
+  }
+
+  try {
+    // Hash the password the same way PHP does
+    const passwordHash = hashPassword(username, db, password);
+
+    // Query to find user with matching password
+    // PHP: SELECT u.id uid, u.val, pwd.id pwd_id, pwd.val pwd, tok.id tok, tok.val token, act.id act, xsrf.id xsrf
+    //      FROM $z pwd, $z u
+    //      LEFT JOIN $z act ON act.up=u.id AND act.t=ACTIVITY
+    //      LEFT JOIN $z tok ON tok.up=u.id AND tok.t=TOKEN
+    //      LEFT JOIN $z xsrf ON xsrf.up=u.id AND xsrf.t=XSRF
+    //      WHERE u.t=USER AND u.val=? AND pwd.up=u.id AND pwd.val=?
+    const sql = `
+      SELECT
+        u.id AS uid,
+        u.val AS username,
+        pwd.id AS pwd_id,
+        tok.id AS tok_id,
+        tok.val AS token,
+        xsrf.id AS xsrf_id,
+        xsrf.val AS xsrf,
+        act.id AS act_id,
+        role.t AS role_id,
+        role_def.val AS role_name
+      FROM ?? u
+      JOIN ?? pwd ON pwd.up = u.id AND pwd.t = ?
+      LEFT JOIN ?? tok ON tok.up = u.id AND tok.t = ?
+      LEFT JOIN ?? xsrf ON xsrf.up = u.id AND xsrf.t = ?
+      LEFT JOIN ?? act ON act.up = u.id AND act.t = ?
+      LEFT JOIN ?? role ON role.up = u.id AND role.t IN (SELECT id FROM ?? WHERE t = ?)
+      LEFT JOIN ?? role_def ON role_def.id = role.t AND role_def.t = ?
+      WHERE u.t = ? AND u.val = ? AND pwd.val = ?
+      LIMIT 1
+    `;
+
+    const rows = await query(sql, [
+      db, // table u
+      db, // table pwd
+      TYPE.PASSWORD, // pwd.t
+      db, // table tok
+      TYPE.TOKEN, // tok.t
+      db, // table xsrf
+      TYPE.XSRF, // xsrf.t
+      db, // table act
+      TYPE.ACTIVITY, // act.t
+      db, // table role
+      db, // subquery table
+      TYPE.ROLE, // role type filter
+      db, // table role_def
+      TYPE.ROLE, // role_def.t
+      TYPE.USER, // u.t
+      username, // u.val
+      passwordHash // pwd.val
+    ]);
+
+    if (rows.length === 0) {
+      console.log(`❌ [AUTH] Failed login attempt for user: ${username} in ${db}`);
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid username or password',
+        code: 'INVALID_CREDENTIALS'
+      });
+    }
+
+    const user = rows[0];
+
+    // Generate new token
+    const newToken = generateToken();
+    const newXsrf = generateXsrf(newToken, username);
+    const timestamp = Math.floor(Date.now() / 1000);
+
+    // Update or create token
+    if (user.tok_id) {
+      await execute(`UPDATE ?? SET val = ? WHERE id = ?`, [db, newToken, user.tok_id]);
+    } else {
+      // Get next order number
+      const maxOrd = await query(`SELECT COALESCE(MAX(ord), 0) + 1 AS ord FROM ?? WHERE up = ?`, [db, user.uid]);
+      const ord = maxOrd[0]?.ord || 1;
+      await execute(`INSERT INTO ?? (up, ord, t, val) VALUES (?, ?, ?, ?)`, [db, user.uid, ord, TYPE.TOKEN, newToken]);
+    }
+
+    // Update or create XSRF
+    if (user.xsrf_id) {
+      await execute(`UPDATE ?? SET val = ? WHERE id = ?`, [db, newXsrf, user.xsrf_id]);
+    } else {
+      const maxOrd = await query(`SELECT COALESCE(MAX(ord), 0) + 1 AS ord FROM ?? WHERE up = ?`, [db, user.uid]);
+      const ord = maxOrd[0]?.ord || 1;
+      await execute(`INSERT INTO ?? (up, ord, t, val) VALUES (?, ?, ?, ?)`, [db, user.uid, ord, TYPE.XSRF, newXsrf]);
+    }
+
+    // Update or create activity timestamp
+    if (user.act_id) {
+      await execute(`UPDATE ?? SET val = ? WHERE id = ?`, [db, String(timestamp), user.act_id]);
+    } else {
+      const maxOrd = await query(`SELECT COALESCE(MAX(ord), 0) + 1 AS ord FROM ?? WHERE up = ?`, [db, user.uid]);
+      const ord = maxOrd[0]?.ord || 1;
+      await execute(`INSERT INTO ?? (up, ord, t, val) VALUES (?, ?, ?, ?)`, [db, user.uid, ord, TYPE.ACTIVITY, String(timestamp)]);
+    }
+
+    console.log(`✅ [AUTH] User logged in: ${username} (id: ${user.uid}) in ${db}`);
+
+    // Return response matching PHP format
+    res.json({
+      success: true,
+      token: newToken,
+      _xsrf: newXsrf,
+      id: user.uid,
+      user: user.username,
+      role: user.role_name || null,
+      roleId: user.role_id || null
+    });
+
+  } catch (error) {
+    console.error('❌ [AUTH] Error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: 'Authentication error',
+      code: 'AUTH_ERROR',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+/**
+ * Token validation endpoint (POST /:db/validate)
+ * Maps to PHP: Validate_Token()
+ */
+app.all('/api/:db/validate', async (req, res) => {
+  const { db } = req.params;
+  const token = req.body.token || req.query.token || req.cookies?.[db];
+
+  if (!token) {
+    return res.status(401).json({
+      success: false,
+      valid: false,
+      error: 'No token provided'
+    });
+  }
+
+  if (!dbConnected) {
+    return res.json({
+      success: true,
+      valid: false,
+      mock: true,
+      error: 'Database not connected'
+    });
+  }
+
+  try {
+    const sql = `
+      SELECT
+        u.id AS uid,
+        u.val AS username,
+        xsrf.val AS xsrf,
+        role.t AS role_id,
+        role_def.val AS role_name
+      FROM ?? tok
+      JOIN ?? u ON tok.up = u.id AND u.t = ?
+      LEFT JOIN ?? xsrf ON xsrf.up = u.id AND xsrf.t = ?
+      LEFT JOIN ?? role ON role.up = u.id
+      LEFT JOIN ?? role_def ON role_def.id = role.t AND role_def.t = ?
+      WHERE tok.t = ? AND tok.val = ?
+      LIMIT 1
+    `;
+
+    const rows = await query(sql, [
+      db, // table tok
+      db, // table u
+      TYPE.USER,
+      db, // table xsrf
+      TYPE.XSRF,
+      db, // table role
+      db, // table role_def
+      TYPE.ROLE,
+      TYPE.TOKEN,
+      token
+    ]);
+
+    if (rows.length === 0) {
+      return res.status(401).json({
+        success: false,
+        valid: false,
+        error: 'Invalid token'
+      });
+    }
+
+    const user = rows[0];
+
+    res.json({
+      success: true,
+      valid: true,
+      id: user.uid,
+      user: user.username,
+      xsrf: user.xsrf,
+      role: user.role_name,
+      roleId: user.role_id
+    });
+
+  } catch (error) {
+    console.error('❌ [VALIDATE] Error:', error.message);
+    res.status(500).json({
+      success: false,
+      valid: false,
+      error: 'Validation error'
+    });
+  }
 });
 
 // JWT authentication (POST /:db/jwt)
@@ -154,54 +513,168 @@ app.post('/api/:db/jwt', (req, res) => {
   const { jwt, token } = req.body;
 
   res.json({
-    success: true,
+    success: false,
     message: 'JWT authentication endpoint',
     db,
     valid: false,
-    error: 'JWT verification not implemented in minimal server'
+    error: 'JWT verification requires @integram/auth-service'
   });
 });
 
 // Password confirmation (POST /:db/confirm)
 app.post('/api/:db/confirm', (req, res) => {
   const { db } = req.params;
-  const { pwd } = req.body;
 
   res.json({
-    success: true,
+    success: false,
     message: 'Password confirmation endpoint',
     db,
     confirmed: false,
-    error: 'Password confirmation not implemented in minimal server'
+    error: 'Password confirmation requires @integram/auth-service'
   });
 });
 
 // Get one-time code (POST /:db/getcode)
-app.all('/api/:db/getcode', (req, res) => {
+app.all('/api/:db/getcode', async (req, res) => {
   const { db } = req.params;
-  const { email, phone } = { ...req.body, ...req.query };
+  const email = req.body.email || req.body.u || req.query.email || req.query.u;
 
-  res.json({
-    success: true,
-    message: 'One-time code request endpoint',
-    db,
-    sent: false,
-    error: 'Code generation not implemented in minimal server'
-  });
+  if (!email) {
+    return res.json({ error: 'invalid user' });
+  }
+
+  // Validate email format
+  if (!/.+@.+\..+/i.test(email)) {
+    return res.json({ error: 'invalid user' });
+  }
+
+  if (!dbConnected) {
+    return res.json({ msg: 'new' }); // User would need to register
+  }
+
+  try {
+    // Check if user exists
+    const sql = `
+      SELECT u.id, tok.val AS token
+      FROM ?? u
+      LEFT JOIN ?? tok ON tok.up = u.id AND tok.t = ?
+      WHERE u.t = ? AND u.val = ?
+      LIMIT 1
+    `;
+
+    const rows = await query(sql, [db, db, TYPE.TOKEN, TYPE.USER, email.toLowerCase()]);
+
+    if (rows.length === 0) {
+      // Also check email field
+      const emailSql = `
+        SELECT u.id, tok.val AS token
+        FROM ?? email
+        JOIN ?? u ON email.up = u.id AND u.t = ?
+        LEFT JOIN ?? tok ON tok.up = u.id AND tok.t = ?
+        WHERE email.t = ? AND email.val = ?
+        LIMIT 1
+      `;
+      const emailRows = await query(emailSql, [db, db, TYPE.USER, db, TYPE.TOKEN, TYPE.EMAIL, email.toLowerCase()]);
+
+      if (emailRows.length === 0) {
+        return res.json({ msg: 'new' });
+      }
+
+      // User found via email field
+      // In production: would send code to email here
+      return res.json({ msg: 'ok' });
+    }
+
+    // User found
+    // In production: would send code to email here
+    return res.json({ msg: 'ok' });
+
+  } catch (error) {
+    console.error('❌ [GETCODE] Error:', error.message);
+    return res.json({ error: 'invalid user' });
+  }
 });
 
 // Check one-time code (POST /:db/checkcode)
-app.all('/api/:db/checkcode', (req, res) => {
+app.all('/api/:db/checkcode', async (req, res) => {
   const { db } = req.params;
-  const { code } = { ...req.body, ...req.query };
+  const email = req.body.email || req.body.u || req.query.email || req.query.u;
+  const code = req.body.code || req.body.c || req.query.code || req.query.c;
 
-  res.json({
-    success: true,
-    message: 'One-time code verification endpoint',
-    db,
-    valid: false,
-    error: 'Code verification not implemented in minimal server'
-  });
+  if (!email || !code) {
+    return res.json({ error: 'invalid data' });
+  }
+
+  if (code.length !== 4) {
+    return res.json({ error: 'invalid data' });
+  }
+
+  if (!dbConnected) {
+    return res.json({ error: 'user not found' });
+  }
+
+  try {
+    // PHP: tok.val LIKE '$c%' - token starts with code
+    const sql = `
+      SELECT u.id AS uid, u.val AS username, tok.id AS tok_id, xsrf.id AS xsrf_id, act.id AS act_id
+      FROM ?? tok
+      JOIN ?? u ON tok.up = u.id AND u.t = ?
+      LEFT JOIN ?? xsrf ON xsrf.up = u.id AND xsrf.t = ?
+      LEFT JOIN ?? act ON act.up = u.id AND act.t = ?
+      WHERE tok.t = ? AND LOWER(tok.val) LIKE ? AND u.val = ?
+      LIMIT 1
+    `;
+
+    const rows = await query(sql, [
+      db, db, TYPE.USER,
+      db, TYPE.XSRF,
+      db, TYPE.ACTIVITY,
+      TYPE.TOKEN,
+      code.toLowerCase() + '%',
+      email.toLowerCase()
+    ]);
+
+    if (rows.length === 0) {
+      return res.json({ error: 'user not found' });
+    }
+
+    const user = rows[0];
+
+    // Generate new token and XSRF
+    const newToken = generateToken();
+    const newXsrf = generateXsrf(newToken, email);
+    const timestamp = Math.floor(Date.now() / 1000);
+
+    // Update token
+    await execute(`UPDATE ?? SET val = ? WHERE id = ?`, [db, newToken, user.tok_id]);
+
+    // Update or create XSRF
+    if (user.xsrf_id) {
+      await execute(`UPDATE ?? SET val = ? WHERE id = ?`, [db, newXsrf, user.xsrf_id]);
+    } else {
+      const maxOrd = await query(`SELECT COALESCE(MAX(ord), 0) + 1 AS ord FROM ?? WHERE up = ?`, [db, user.uid]);
+      await execute(`INSERT INTO ?? (up, ord, t, val) VALUES (?, ?, ?, ?)`, [db, user.uid, maxOrd[0].ord, TYPE.XSRF, newXsrf]);
+    }
+
+    // Update or create activity
+    if (user.act_id) {
+      await execute(`UPDATE ?? SET val = ? WHERE id = ?`, [db, String(timestamp), user.act_id]);
+    } else {
+      const maxOrd = await query(`SELECT COALESCE(MAX(ord), 0) + 1 AS ord FROM ?? WHERE up = ?`, [db, user.uid]);
+      await execute(`INSERT INTO ?? (up, ord, t, val) VALUES (?, ?, ?, ?)`, [db, user.uid, maxOrd[0].ord, TYPE.ACTIVITY, String(timestamp)]);
+    }
+
+    console.log(`✅ [CHECKCODE] User authenticated via code: ${email} in ${db}`);
+
+    res.json({
+      token: newToken,
+      _xsrf: newXsrf
+    });
+
+  } catch (error) {
+    console.error('❌ [CHECKCODE] Error:', error.message);
+    return res.json({ error: 'user not found' });
+  }
 });
 
 // ============================================================================
@@ -394,37 +867,57 @@ server.on('upgrade', (request, socket, head) => {
 // Server Startup
 // ============================================================================
 
-server.listen(PORT, HOST, () => {
-  console.log('\n╔════════════════════════════════════════════════════════════════╗');
-  console.log('║       Integram Standalone Backend - Minimal Version            ║');
-  console.log('╚════════════════════════════════════════════════════════════════╝\n');
-  console.log(`✅ Server running on http://${HOST}:${PORT}`);
-  console.log(`✅ WebSocket endpoint: ws://${HOST}:${PORT}/ws`);
-  console.log(`✅ Health check: http://${HOST}:${PORT}/health`);
-  console.log(`✅ API Info: http://${HOST}:${PORT}/api/info`);
-  console.log('\n📚 Legacy Integram API routes:');
-  console.log(`   POST /api/:db/auth     - Authentication`);
-  console.log(`   POST /api/:db/jwt      - JWT authentication`);
-  console.log(`   POST /api/:db/confirm  - Password confirmation`);
-  console.log(`   POST /api/:db/getcode  - Request one-time code`);
-  console.log(`   POST /api/:db/checkcode - Verify one-time code`);
-  console.log(`   POST /api/:db/_m_new   - Create object (stub)`);
-  console.log(`   POST /api/:db/_m_save  - Save object (stub)`);
-  console.log(`   POST /api/:db/_m_del   - Delete object (stub)`);
-  console.log('\n');
+async function startServer() {
+  // Initialize database connection
+  await initDatabase();
+
+  server.listen(PORT, HOST, () => {
+    console.log('\n╔════════════════════════════════════════════════════════════════╗');
+    console.log('║       Integram Standalone Backend - With DB Authentication     ║');
+    console.log('╚════════════════════════════════════════════════════════════════╝\n');
+    console.log(`✅ Server running on http://${HOST}:${PORT}`);
+    console.log(`✅ WebSocket endpoint: ws://${HOST}:${PORT}/ws`);
+    console.log(`✅ Health check: http://${HOST}:${PORT}/health`);
+    console.log(`✅ API Info: http://${HOST}:${PORT}/api/info`);
+    console.log(`📦 Database: ${dbConnected ? `Connected to ${DB_CONFIG.host}` : 'Not connected (mock mode)'}`);
+    console.log('\n📚 Integram API routes (PHP-compatible):');
+    console.log(`   POST /api/:db/auth       - User authentication (${dbConnected ? 'REAL' : 'MOCK'})`);
+    console.log(`   GET  /api/:db/validate   - Token validation`);
+    console.log(`   POST /api/:db/getcode    - Request one-time code`);
+    console.log(`   POST /api/:db/checkcode  - Verify one-time code`);
+    console.log(`   POST /api/:db/jwt        - JWT authentication (stub)`);
+    console.log(`   POST /api/:db/confirm    - Password confirmation (stub)`);
+    console.log(`   POST /api/:db/_m_*       - DML actions (stubs)`);
+    console.log('\n');
+  });
+}
+
+startServer().catch(error => {
+  console.error('❌ Failed to start server:', error.message);
+  process.exit(1);
 });
 
 // ============================================================================
 // Graceful Shutdown
 // ============================================================================
 
-const shutdown = (signal) => {
+const shutdown = async (signal) => {
   console.log(`\n⚠️  ${signal} received, shutting down gracefully...`);
 
   // Close WebSocket connections
   wss.clients.forEach((client) => {
     client.close(1001, 'Server shutting down');
   });
+
+  // Close database pool
+  if (dbPool) {
+    try {
+      await dbPool.end();
+      console.log('✅ Database connections closed');
+    } catch (err) {
+      console.error('⚠️  Error closing database:', err.message);
+    }
+  }
 
   server.close(() => {
     console.log('✅ Server closed');
