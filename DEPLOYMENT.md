@@ -2,6 +2,24 @@
 
 ## 🚀 Развертывание Integram Standalone
 
+> 📖 **Подробная документация по backend:**
+> - [Полное руководство по развёртыванию backend](docs/BACKEND_DEPLOYMENT.md)
+> - [План компонентизации backend](docs/BACKEND_COMPONENTIZATION_PLAN.md)
+> - [API документация](docs/API_DOCUMENTATION.md)
+
+---
+
+## 📋 Содержание
+
+1. [Быстрый старт](#вариант-1-локальный-запуск-development)
+2. [Production развёртывание](#вариант-2-production-сборка)
+3. [Конфигурация .env](#-полная-конфигурация-env)
+4. [Настройки безопасности](#-настройки-безопасности)
+5. [Мониторинг](#-мониторинг)
+6. [Troubleshooting](#-troubleshooting)
+
+---
+
 ### Вариант 1: Локальный запуск (Development)
 
 #### Требования
@@ -311,8 +329,115 @@ docker-compose up -d
 2. Проверьте `proxy_set_header Upgrade` в Nginx config
 3. Проверьте логи Socket.io на backend
 
+## 🔧 Полная конфигурация .env
+
+Ниже приведены все доступные переменные окружения для backend.
+
+> 📖 **Подробное описание каждой переменной:** [docs/BACKEND_DEPLOYMENT.md](docs/BACKEND_DEPLOYMENT.md#настройка-окружения-env)
+
+### Основные настройки
+
+```env
+# Сервер
+PORT=8081
+HOST=0.0.0.0
+NODE_ENV=production
+
+# HTTPS (отключите если за Nginx)
+HTTPS_ENABLED=false
+SSL_CERT_PATH=/etc/letsencrypt/live/your-domain.com/fullchain.pem
+SSL_KEY_PATH=/etc/letsencrypt/live/your-domain.com/privkey.pem
+```
+
+### База данных PostgreSQL
+
+```env
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=integram
+DB_USER=integram
+DB_PASSWORD=your_secure_password
+```
+
+### Аутентификация
+
+```env
+# JWT (сгенерируйте: node scripts/generate-jwt-secret.js)
+JWT_SECRET=your-256-bit-jwt-secret-key
+SESSION_SECRET=your-session-secret
+
+# Время жизни токенов
+JWT_ACCESS_TOKEN_EXPIRES_IN=15m
+JWT_REFRESH_TOKEN_EXPIRES_IN=7d
+
+# Bcrypt rounds
+BCRYPT_ROUNDS=10
+```
+
+### Integram API
+
+```env
+INTEGRAM_API_BASE_URL=https://example.integram.io
+INTEGRAM_AUTH_TOKEN=your-integram-auth-token
+INTEGRAM_REGISTRATION_USERNAME=your_registration_username
+INTEGRAM_REGISTRATION_PASSWORD=your_secure_password
+```
+
+### AI провайдеры
+
+```env
+# Минимум один ключ для работы AI чата
+POLZA_AI_API_KEY=your-polza-api-key
+DEEPSEEK_API_KEY=your-deepseek-api-key
+ANTHROPIC_API_KEY=your-anthropic-api-key
+OPENAI_API_KEY=your-openai-api-key
+```
+
+### Email (SMTP)
+
+```env
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your-email@example.com
+SMTP_PASSWORD=your-app-password
+FROM_EMAIL=noreply@example.integram.io
+FROM_NAME=Integram Platform
+FRONTEND_URL=https://example.integram.io
+```
+
+### Файловое хранилище
+
+```env
+UPLOAD_DIR=/var/integram/uploads
+DATA_DIR=/var/integram/data
+TEMP_DIR=/var/integram/temp
+WORKSPACE_ROOT=/var/lib/integram/workspaces
+```
+
+### CORS и Rate Limiting
+
+```env
+CORS_ORIGIN=http://localhost:5173,https://example.integram.io
+RATE_LIMIT_WINDOW=15
+RATE_LIMIT_MAX_REQUESTS=100
+```
+
+### Логирование
+
+```env
+LOG_LEVEL=info
+LOG_FILE=/var/log/integram/backend.log
+```
+
+---
+
 ## 📚 Дополнительные ресурсы
 
 - [GitHub Repository](https://github.com/unidel2035/integram-standalone)
 - [README.md](README.md) - Общая документация
 - [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) - Детали реализации
+- [docs/BACKEND_DEPLOYMENT.md](docs/BACKEND_DEPLOYMENT.md) - Полное руководство по backend
+- [docs/BACKEND_COMPONENTIZATION_PLAN.md](docs/BACKEND_COMPONENTIZATION_PLAN.md) - План компонентизации
+- [docs/API_DOCUMENTATION.md](docs/API_DOCUMENTATION.md) - API документация
+- [backend/monolith/.env.example](backend/monolith/.env.example) - Пример конфигурации
