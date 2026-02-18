@@ -238,6 +238,143 @@ export class AuthService {
   }
 
   // ============================================================================
+  // One-Time Password Methods (Legacy PHP Compatibility)
+  // ============================================================================
+
+  /**
+   * Get one-time code for user.
+   * Maps to PHP: case "getcode"
+   *
+   * Returns the first 4 characters of the user's token as a code.
+   *
+   * @param {string} database - Database name
+   * @param {string} email - User email
+   * @returns {Promise<Object|null>} Code info or null if user not found
+   */
+  async getOneTimeCode(database, email) {
+    // Find user by email (as username or email field)
+    const user = await this.findUserByUsername(database, email);
+    if (!user) {
+      // Also check email field
+      const { rows } = await this.db.execSql(
+        `SELECT u.id, u.val, tok.val as token
+         FROM ${database} email
+         JOIN ${database} u ON email.up = u.id AND u.t = ?
+         LEFT JOIN ${database} tok ON tok.up = u.id AND tok.t = ?
+         WHERE email.t = ? AND email.val = ?
+         LIMIT 1`,
+        [USER, TOKEN, EMAIL, email],
+        'Find user by email'
+      );
+
+      if (!rows[0]) {
+        return null;
+      }
+
+      // Return code (first 4 chars of token)
+      const code = rows[0].token ? rows[0].token.substring(0, 4).toUpperCase() : null;
+      return { userId: rows[0].id, code };
+    }
+
+    // Get user's token
+    const { rows } = await this.db.execSql(
+      `SELECT val FROM ${database} WHERE up = ? AND t = ? LIMIT 1`,
+      [user.id, TOKEN],
+      'Get user token for code'
+    );
+
+    if (!rows[0]) {
+      return null;
+    }
+
+    // Return code (first 4 chars of token)
+    const code = rows[0].val.substring(0, 4).toUpperCase();
+    return { userId: user.id, code };
+  }
+
+  /**
+   * Verify one-time code.
+   * Maps to PHP: case "checkcode"
+   *
+   * Checks if the provided code matches the first 4 characters of the user's token.
+   * If valid, generates new token and XSRF.
+   *
+   * @param {string} database - Database name
+   * @param {string} email - User email
+   * @param {string} code - 4-character code
+   * @returns {Promise<Object|null>} New token/xsrf or null if invalid
+   */
+  async verifyOneTimeCode(database, email, code) {
+    // PHP: tok.val LIKE '$c%' - token starts with code
+    const { rows } = await this.db.execSql(
+      `SELECT u.id, u.val, tok.id as tokId, xsrf.id as xsrfId, act.id as actId
+       FROM ${database} tok
+       JOIN ${database} u ON tok.up = u.id AND u.t = ?
+       LEFT JOIN ${database} act ON act.up = u.id AND act.t = ?
+       LEFT JOIN ${database} xsrf ON xsrf.up = u.id AND xsrf.t = ?
+       WHERE tok.t = ? AND LOWER(tok.val) LIKE ?
+       AND u.val = ?
+       LIMIT 1`,
+      [USER, ACTIVITY, XSRF, TOKEN, `${code}%`, email],
+      'Verify one-time code'
+    );
+
+    if (!rows[0]) {
+      // Also try finding by email field
+      const { rows: emailRows } = await this.db.execSql(
+        `SELECT u.id, u.val, tok.id as tokId, xsrf.id as xsrfId, act.id as actId
+         FROM ${database} email
+         JOIN ${database} u ON email.up = u.id AND u.t = ?
+         JOIN ${database} tok ON tok.up = u.id AND tok.t = ?
+         LEFT JOIN ${database} act ON act.up = u.id AND act.t = ?
+         LEFT JOIN ${database} xsrf ON xsrf.up = u.id AND xsrf.t = ?
+         WHERE email.t = ? AND email.val = ?
+         AND LOWER(tok.val) LIKE ?
+         LIMIT 1`,
+        [USER, TOKEN, ACTIVITY, XSRF, EMAIL, email, `${code}%`],
+        'Verify one-time code by email'
+      );
+
+      if (!emailRows[0]) {
+        return null;
+      }
+
+      rows[0] = emailRows[0];
+    }
+
+    const user = rows[0];
+
+    // Generate new token (PHP: md5(microtime(TRUE)))
+    const newToken = this.jwt.generateLegacyToken();
+    const newXsrf = this.jwt.generateXsrf(newToken, email);
+
+    // Update token
+    await this.db.updateVal(database, user.tokId, newToken, 'Update token for code auth');
+
+    // Update or create XSRF
+    if (user.xsrfId) {
+      await this.db.updateVal(database, user.xsrfId, newXsrf, 'Update XSRF for code auth');
+    } else {
+      await this.db.insert(database, user.id, 1, XSRF, newXsrf, 'Insert XSRF for code auth');
+    }
+
+    // Update or create activity
+    const timestamp = Date.now() / 1000;
+    if (user.actId) {
+      await this.db.updateVal(database, user.actId, String(timestamp), 'Update activity for code auth');
+    } else {
+      await this.db.insert(database, user.id, 1, ACTIVITY, String(timestamp), 'Insert activity for code auth');
+    }
+
+    return {
+      token: newToken,
+      xsrf: newXsrf,
+      userId: user.id,
+      username: user.val,
+    };
+  }
+
+  // ============================================================================
   // Helper Methods
   // ============================================================================
 

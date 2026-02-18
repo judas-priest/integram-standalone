@@ -40,6 +40,13 @@ export function createAuthRoutes(options) {
   router.post('/:db/login', loginRateLimit, authController.login);
 
   /**
+   * POST /:db/auth - User login (Legacy PHP action)
+   * Maps to PHP: case "auth" in index.php
+   * Legacy compatible: login=xxx&pwd=xxx
+   */
+  router.post('/:db/auth', loginRateLimit, authController.login);
+
+  /**
    * POST /:db/register - User registration
    * Legacy compatible: email=xxx&regpwd=xxx&regpwd1=xxx&agree=1
    * Modern: { email: "xxx", password: "xxx" }
@@ -67,6 +74,35 @@ export function createAuthRoutes(options) {
    * POST /:db/password-reset/confirm - Confirm password reset
    */
   router.post('/:db/password-reset/confirm', authController.passwordResetConfirm);
+
+  // ============================================================================
+  // One-Time Password Routes (Legacy PHP Compatibility)
+  // Maps to PHP: getcode and checkcode actions
+  // ============================================================================
+
+  /**
+   * GET /:db/getcode - Request one-time password
+   * Legacy compatible: u=email
+   * Returns: {"msg":"ok"} if user exists, {"msg":"new"} if new user
+   */
+  router.get('/:db/getcode', authController.getCode);
+
+  /**
+   * POST /:db/getcode - Request one-time password (POST version)
+   */
+  router.post('/:db/getcode', authController.getCode);
+
+  /**
+   * GET /:db/checkcode - Verify one-time password
+   * Legacy compatible: u=email&c=code
+   * Returns: {"token":"...", "_xsrf":"..."} on success
+   */
+  router.get('/:db/checkcode', authController.checkCode);
+
+  /**
+   * POST /:db/checkcode - Verify one-time password (POST version)
+   */
+  router.post('/:db/checkcode', authController.checkCode);
 
   // ============================================================================
   // Protected Routes (authentication required)

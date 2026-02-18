@@ -25,6 +25,7 @@ import { ValidationService } from './services/ValidationService.js';
 import { LegacyFormatTransformer } from './middleware/LegacyFormatTransformer.js';
 import { createV1Routes } from './routes/v1/index.js';
 import { createV2Routes } from './routes/v2/index.js';
+import { createLegacyRoutes } from './routes/legacy/index.js';
 
 // ============================================================================
 // Package Information
@@ -100,6 +101,11 @@ export class CoreDataService {
     const router = express.Router();
     const services = this.getServices();
     const routeOptions = { logger: this.logger };
+
+    // Mount legacy PHP action routes (no prefix - direct compatibility)
+    if (options.enableLegacy !== false) {
+      router.use(createLegacyRoutes(services, routeOptions));
+    }
 
     // Mount v1 legacy routes
     if (options.enableV1 !== false) {
