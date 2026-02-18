@@ -95,6 +95,9 @@ import { createAccountingRoutes } from './api/routes/accounting.js';
 import messagingRoutes from './api/routes/messaging.js';
 import authRoutes from './api/routes/auth.js';
 import emailAuthRoutes from './api/routes/email-auth.js';
+import legacyCompatRoutes from './api/routes/legacy-compat.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import adminRoutes from './api/routes/admin.js';
 import userSyncRoutes from './api/routes/user-sync.js';
 import tokenManagementRoutes from './api/routes/token-management.js';
@@ -968,6 +971,40 @@ class IntegramBackend {
     console.log('   - GET    /api/solve/sessions/:sessionId/logs');
     console.log('   - GET    /api/solve/queue');
     console.log('   - POST   /api/solve/cleanup');
+
+    // ========================================
+    // Legacy PHP Compatibility Layer (Issue #121)
+    // Allows legacy HTML frontend to work with new Node.js backend
+    // Maps old PHP URL patterns (/{db}/auth, etc.) to new API
+    // ========================================
+    this.app.use('/', legacyCompatRoutes);
+    console.log('✅ [MONOLITH] Legacy PHP Compatibility routes registered (Issue #121)');
+    console.log('   Endpoints available:');
+    console.log('   - POST   /:db/auth          (PHP-compatible authentication)');
+    console.log('   - GET    /:db/validate      (Token validation)');
+    console.log('   - POST   /:db/getcode       (One-time code request)');
+    console.log('   - POST   /:db/checkcode     (One-time code verification)');
+    console.log('   - POST   /my/register       (User registration)');
+    console.log('   - ALL    /:db/exit          (Logout)');
+    console.log('   - POST   /:db/:action       (Legacy API actions: _m_*, _d_*, etc.)');
+
+    // ========================================
+    // Static Files for Legacy HTML Frontend (Issue #121)
+    // Serve legacy HTML/CSS/JS files from integram-server directory
+    // ========================================
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+    const legacyStaticPath = path.resolve(__dirname, '../../../integram-server');
+
+    // Serve static assets (CSS, JS, images)
+    this.app.use('/css', express.static(path.join(legacyStaticPath, 'css')));
+    this.app.use('/js', express.static(path.join(legacyStaticPath, 'js')));
+    this.app.use('/i', express.static(path.join(legacyStaticPath, 'i')));
+    this.app.use('/templates', express.static(path.join(legacyStaticPath, 'templates')));
+    this.app.use('/ace', express.static(path.join(legacyStaticPath, 'ace')));
+    this.app.use('/app', express.static(path.join(legacyStaticPath, 'app')));
+    console.log('✅ [MONOLITH] Legacy static files served from', legacyStaticPath);
+    console.log('   Static paths: /css, /js, /i, /templates, /ace, /app');
 
     // ========================================
     // Root Endpoint - API Documentation
