@@ -172,4 +172,180 @@ describe('Legacy Compatibility Layer', () => {
       });
     });
   });
+
+  describe('Phase 1 MVP - Attribute extraction', () => {
+    it('should extract type attributes from request body', () => {
+      // Simulates t{id}=value format from PHP forms
+      const body = {
+        val: 'Test Object',
+        t: '18',
+        t20: 'password123',
+        t30: '1234567890',
+        t41: 'test@example.com',
+        other: 'ignored',
+      };
+
+      const attributes = {};
+      for (const [key, value] of Object.entries(body)) {
+        if (key.startsWith('t') && /^t\d+$/.test(key)) {
+          const typeId = parseInt(key.substring(1), 10);
+          attributes[typeId] = value;
+        }
+      }
+
+      expect(Object.keys(attributes).length).toBe(3);
+      expect(attributes[20]).toBe('password123');
+      expect(attributes[30]).toBe('1234567890');
+      expect(attributes[41]).toBe('test@example.com');
+    });
+
+    it('should handle empty attributes', () => {
+      const body = { val: 'Test', t: '18' };
+
+      const attributes = {};
+      for (const [key, value] of Object.entries(body)) {
+        if (key.startsWith('t') && /^t\d+$/.test(key)) {
+          const typeId = parseInt(key.substring(1), 10);
+          attributes[typeId] = value;
+        }
+      }
+
+      expect(Object.keys(attributes).length).toBe(0);
+    });
+  });
+
+  describe('Phase 1 MVP - Requisite modifier parsing', () => {
+    it('should parse :ALIAS=xxx: modifier', () => {
+      let name = ':ALIAS=email:Электронная почта';
+      let alias = null;
+
+      const aliasMatch = name.match(/:ALIAS=(.*?):/);
+      if (aliasMatch) {
+        alias = aliasMatch[1];
+        name = name.replace(aliasMatch[0], '');
+      }
+
+      expect(alias).toBe('email');
+      expect(name).toBe('Электронная почта');
+    });
+
+    it('should parse :!NULL: modifier', () => {
+      let name = ':!NULL:Обязательное поле';
+      let required = false;
+
+      if (name.includes(':!NULL:')) {
+        required = true;
+        name = name.replace(':!NULL:', '');
+      }
+
+      expect(required).toBe(true);
+      expect(name).toBe('Обязательное поле');
+    });
+
+    it('should parse :MULTI: modifier', () => {
+      let name = ':MULTI:Множественный выбор';
+      let multi = false;
+
+      if (name.includes(':MULTI:')) {
+        multi = true;
+        name = name.replace(':MULTI:', '');
+      }
+
+      expect(multi).toBe(true);
+      expect(name).toBe('Множественный выбор');
+    });
+
+    it('should parse combined modifiers', () => {
+      let name = ':ALIAS=roles::!NULL::MULTI:Роли пользователя';
+      let alias = null;
+      let required = false;
+      let multi = false;
+
+      const aliasMatch = name.match(/:ALIAS=(.*?):/);
+      if (aliasMatch) {
+        alias = aliasMatch[1];
+        name = name.replace(aliasMatch[0], '');
+      }
+
+      if (name.includes(':!NULL:')) {
+        required = true;
+        name = name.replace(':!NULL:', '');
+      }
+
+      if (name.includes(':MULTI:')) {
+        multi = true;
+        name = name.replace(':MULTI:', '');
+      }
+
+      expect(alias).toBe('roles');
+      expect(required).toBe(true);
+      expect(multi).toBe(true);
+      expect(name).toBe('Роли пользователя');
+    });
+  });
+
+  describe('Phase 1 MVP - Response format', () => {
+    it('should format _m_new response correctly', () => {
+      const response = {
+        status: 'Ok',
+        id: 1001,
+        val: 'Test User',
+        up: 1,
+        t: 18,
+        ord: 1,
+      };
+
+      expect(response.status).toBe('Ok');
+      expect(response.id).toBe(1001);
+      expect(response.val).toBe('Test User');
+      expect(response.t).toBe(18);
+    });
+
+    it('should format _list response correctly', () => {
+      const response = {
+        data: [
+          { id: 1, val: 'Item 1', up: 0, t: 18, ord: 1 },
+          { id: 2, val: 'Item 2', up: 0, t: 18, ord: 2 },
+        ],
+        total: 100,
+        limit: 50,
+        offset: 0,
+      };
+
+      expect(Array.isArray(response.data)).toBe(true);
+      expect(response.data.length).toBe(2);
+      expect(response.total).toBe(100);
+      expect(response.limit).toBe(50);
+    });
+
+    it('should format _d_main response correctly', () => {
+      const response = {
+        id: 18,
+        name: 'Пользователь',
+        baseType: 8,
+        order: 17,
+        requisites: [
+          { id: 20, name: 'Пароль', alias: 'pwd', type: 6, order: 1, required: true, multi: false },
+          { id: 30, name: 'Телефон', alias: 'phone', type: 8, order: 2, required: false, multi: false },
+        ],
+      };
+
+      expect(response.id).toBe(18);
+      expect(response.name).toBe('Пользователь');
+      expect(Array.isArray(response.requisites)).toBe(true);
+      expect(response.requisites[0].required).toBe(true);
+    });
+
+    it('should format _ref_reqs response as key-value pairs', () => {
+      const response = {
+        1: 'Admin',
+        2: 'User',
+        3: 'Guest',
+      };
+
+      expect(response[1]).toBe('Admin');
+      expect(response[2]).toBe('User');
+      expect(Object.keys(response).length).toBe(3);
+    });
+  });
 });

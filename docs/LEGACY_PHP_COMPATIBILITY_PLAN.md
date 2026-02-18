@@ -181,17 +181,22 @@ PHP: строки 7859-7990
 
 ## Приоритеты
 
-### Фаза 1: MVP (2-3 недели)
+### Фаза 1: MVP (2-3 недели) ✅ ЗАВЕРШЕНА
 
 **Цель:** Базовая работа с данными
 
-- [ ] `_m_new` — создание объектов
-- [ ] `_m_save` — сохранение объектов
-- [ ] `_m_del` — удаление объектов
-- [ ] `_m_set` — установка атрибутов
-- [ ] `_dict` — справочник типов
-- [ ] `_list` — список объектов
-- [ ] `_d_main` — метаданные типа
+- [x] `_m_new` — создание объектов
+- [x] `_m_save` — сохранение объектов
+- [x] `_m_del` — удаление объектов
+- [x] `_m_set` — установка атрибутов
+- [x] `_dict` — справочник типов
+- [x] `_list` — список объектов
+- [x] `_d_main` — метаданные типа
+- [x] `_m_move` — перемещение объектов
+- [x] `terms` — список типов
+- [x] `xsrf` — XSRF токен
+- [x] `_ref_reqs` — данные для dropdown
+- [x] `_connect` — проверка соединения
 
 **Результат:** Можно создавать, редактировать и удалять данные.
 
@@ -382,7 +387,7 @@ src/
 
 Полная совместимость с PHP index.php требует реализации ~50 эндпоинтов и ~30 вспомогательных функций. При поэтапной реализации (3 фазы) можно достичь 90%+ совместимости за 6-8 недель работы.
 
-**Текущий прогресс:** ~20% (аутентификация + legacy compatibility layer + стабы)
+**Текущий прогресс:** ~40% (аутентификация + legacy compatibility layer + Phase 1 MVP DML/Query actions)
 
 ---
 
@@ -430,6 +435,162 @@ src/
 
 ---
 
-**Версия:** 1.1.0
+## Phase 1 MVP Implementation Details
+
+### Реализованные DML Actions
+
+#### `_m_new` — Создание объекта
+```
+POST /:db/_m_new/:up?
+Parameters:
+  - up: Parent ID (optional, default: 0)
+  - t: Type ID (required)
+  - val: Object value
+  - t{id}=value: Requisite values
+
+Response:
+{
+  "status": "Ok",
+  "id": 1001,
+  "val": "Object Name",
+  "up": 1,
+  "t": 18,
+  "ord": 1
+}
+```
+
+#### `_m_save` — Сохранение объекта
+```
+POST /:db/_m_save/:id
+Parameters:
+  - val: New value (optional)
+  - t{id}=value: Requisite updates
+
+Response: { "status": "Ok", "id": 1001, "val": "Updated Name" }
+```
+
+#### `_m_del` — Удаление объекта
+```
+POST /:db/_m_del/:id
+Parameters:
+  - cascade: "1" to delete children recursively
+
+Response: { "status": "Ok" }
+```
+
+#### `_m_set` — Установка атрибутов
+```
+POST /:db/_m_set/:id
+Parameters:
+  - t{id}=value: Attributes to set
+
+Response: { "status": "Ok" }
+```
+
+#### `_m_move` — Перемещение объекта
+```
+POST /:db/_m_move/:id
+Parameters:
+  - up: New parent ID
+
+Response: { "status": "Ok" }
+```
+
+### Реализованные Query Actions
+
+#### `_dict` — Справочник типов
+```
+GET/POST /:db/_dict/:typeId?
+
+Response (without typeId - list of all types):
+[
+  { "id": 18, "name": "Пользователь", "baseType": 8, "order": 17 },
+  ...
+]
+
+Response (with typeId - type with requisites):
+{
+  "id": 18,
+  "name": "Пользователь",
+  "baseType": 8,
+  "requisites": [
+    { "id": 20, "name": "Пароль", "type": 6, "order": 1 },
+    ...
+  ]
+}
+```
+
+#### `_list` — Список объектов
+```
+GET/POST /:db/_list/:typeId
+Parameters:
+  - up: Filter by parent ID
+  - LIMIT: Max results (default: 50)
+  - F: Offset (default: 0)
+  - q: Search query
+
+Response:
+{
+  "data": [
+    { "id": 1001, "val": "admin", "up": 1, "t": 18, "ord": 1 },
+    ...
+  ],
+  "total": 100,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+#### `_d_main` — Метаданные типа
+```
+GET/POST /:db/_d_main/:typeId
+
+Response:
+{
+  "id": 18,
+  "name": "Пользователь",
+  "baseType": 8,
+  "order": 17,
+  "requisites": [
+    {
+      "id": 20,
+      "name": "Пароль",
+      "alias": "pwd",
+      "type": 6,
+      "order": 1,
+      "required": true,
+      "multi": false
+    },
+    ...
+  ]
+}
+```
+
+#### `_ref_reqs` — Данные для dropdown
+```
+GET /:db/_ref_reqs/:refId
+Parameters:
+  - q: Search query (prefix with @ for ID search)
+
+Response (key-value pairs):
+{
+  "1": "Admin",
+  "2": "User",
+  "3": "Guest"
+}
+```
+
+### Формат реквизитов (Modifiers)
+
+Реквизиты могут содержать модификаторы в поле `val`:
+- `:ALIAS=xxx:` — алиас поля (для API/кода)
+- `:!NULL:` — обязательное поле (NOT NULL)
+- `:MULTI:` — множественный выбор
+
+Пример: `:ALIAS=email::!NULL:Электронная почта`
+
+---
+
+**Версия:** 1.2.0
 **Дата:** 2026-02-18
 **Issue:** [#121](https://github.com/unidel2035/integram-standalone/issues/121)
