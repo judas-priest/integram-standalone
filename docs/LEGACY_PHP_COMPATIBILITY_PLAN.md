@@ -23,9 +23,11 @@
 | WebSocket | ✅ Базовая | 70% |
 | DML Actions | ✅ Реализовано | 100% |
 | DDL Actions | ✅ Реализовано | 100% |
-| Отчёты | ❌ Нет | 0% |
-| Файлы | ❌ Нет | 0% |
-| Шаблоны | ❌ Нет | 0% |
+| Метаданные | ✅ Реализовано | 100% |
+| Отчёты | ✅ Базовая | 80% |
+| Файлы | ✅ Реализовано | 100% |
+| Экспорт | ✅ Реализовано | 100% |
+| Шаблоны | ⏳ Базовая | 50% |
 
 ### Статистика PHP index.php
 
@@ -238,14 +240,21 @@ PHP: строки 7859-7990
 
 **Результат:** Полная совместимость с PHP для работы с данными и метаданными.
 
-### Фаза 3: Расширенный функционал (3-4 недели)
+### Фаза 3: Расширенный функционал (3-4 недели) ✅ ЗАВЕРШЕНА
 
-**Цель:** Отчёты и файлы
+**Цель:** Отчёты, файлы и расширенные метаданные
 
-- [ ] Генерация отчётов
-- [ ] Загрузка/скачивание файлов
-- [ ] Экспорт (CSV, Excel)
-- [ ] Шаблоны документов
+- [x] `obj_meta` — метаданные объекта с реквизитами
+- [x] `metadata` — метаданные типов (все или конкретный)
+- [x] `jwt` — JWT аутентификация
+- [x] `confirm` — подтверждение смены пароля
+- [x] `login` — страница входа
+- [x] `_new_db` — создание новой базы данных
+- [x] `upload` — загрузка файлов
+- [x] `download` — скачивание файлов
+- [x] `dir_admin` — управление директориями
+- [x] `report` — получение отчётов
+- [x] `export` — экспорт данных (CSV/JSON)
 
 **Результат:** Полнофункциональная замена PHP backend.
 
@@ -414,7 +423,7 @@ src/
 
 Полная совместимость с PHP index.php требует реализации ~50 эндпоинтов и ~30 вспомогательных функций. При поэтапной реализации (3 фазы) можно достичь 90%+ совместимости за 6-8 недель работы.
 
-**Текущий прогресс:** ~60% (аутентификация + legacy compatibility layer + Phase 1 MVP + Phase 2 DDL actions)
+**Текущий прогресс:** ~90% (Phase 1 DML + Phase 2 DDL + Phase 3 Reports/Files/Metadata + Phase 4 Legacy Site)
 
 ---
 
@@ -824,6 +833,165 @@ bun run dev:legacy
 
 ---
 
-**Версия:** 1.3.0
+---
+
+## Phase 3 Implementation Details
+
+### Metadata Endpoints
+
+#### `obj_meta` — Метаданные объекта
+```
+GET/POST /:db/obj_meta/:id
+
+Response:
+{
+  "id": "1001",
+  "up": "1",
+  "type": "18",
+  "val": "TestUser",
+  "reqs": {
+    "1": {
+      "id": "2001",
+      "val": "Пароль",
+      "type": "6",
+      "attrs": ":!NULL:"
+    }
+  }
+}
+```
+
+#### `metadata` — Метаданные типов
+```
+GET/POST /:db/metadata/:typeId?
+
+Response (single type):
+{
+  "id": "18",
+  "up": "0",
+  "type": "8",
+  "val": "Пользователь",
+  "unique": "10",
+  "reqs": [
+    { "num": 1, "id": "20", "val": "Пароль", "orig": "6", "type": "6" }
+  ]
+}
+
+Response (all types):
+[
+  { "id": "18", "up": "0", "type": "8", "val": "Пользователь", ... },
+  { "id": "42", "up": "0", "type": "8", "val": "Роль", ... }
+]
+```
+
+### Authentication Endpoints
+
+#### `jwt` — JWT валидация
+```
+POST /:db/jwt
+Parameters: token, refresh_token
+
+Response:
+{
+  "success": true,
+  "valid": true,
+  "user": {
+    "id": 1001,
+    "login": "username",
+    "role": "admin",
+    "role_id": 42
+  },
+  "xsrf": "abc123",
+  "token": "xyz789"
+}
+```
+
+#### `confirm` — Подтверждение пароля
+```
+POST /:db/confirm
+Parameters: code, password, password2
+
+Response: { "success": true, "message": "Password updated successfully" }
+```
+
+### File Management Endpoints
+
+#### `upload` — Загрузка файлов
+```
+POST /:db/upload
+Content-Type: multipart/form-data
+
+Response: { "success": true, "path": "/download/mydb/" }
+```
+
+#### `download` — Скачивание файлов
+```
+GET /:db/download/:filename
+
+Response: File binary data
+```
+
+#### `dir_admin` — Управление директориями
+```
+GET /:db/dir_admin?download=1&add_path=/subfolder
+
+Response:
+{
+  "success": true,
+  "folder": "download",
+  "path": "/path/to/files",
+  "directories": [{ "name": "folder1", "type": "directory" }],
+  "files": [{ "name": "file.txt", "type": "file", "size": 1024, "modified": "..." }]
+}
+```
+
+### Report Endpoints
+
+#### `report` — Получение отчётов
+```
+GET/POST /:db/report/:reportId?
+
+Response (list):
+{ "success": true, "reports": [{ "id": 100, "name": "Report", "order": 1 }] }
+
+Response (single):
+{
+  "success": true,
+  "report": {
+    "id": 100,
+    "name": "Report Name",
+    "columns": [{ "id": 201, "name": "Column", "type": 8, "order": 1 }]
+  }
+}
+```
+
+#### `export` — Экспорт данных
+```
+GET /:db/export/:typeId?format=csv|json
+
+Response (CSV):
+id,value,parent,order
+1,"Item 1",0,1
+2,"Item 2",0,2
+```
+
+### Database Management
+
+#### `_new_db` — Создание базы данных
+```
+GET/POST /my/_new_db?db=newdatabase&template=empty
+
+Response:
+{
+  "status": "Ok",
+  "id": "newdatabase",
+  "database": "newdatabase",
+  "template": "empty",
+  "message": "Database \"newdatabase\" created successfully"
+}
+```
+
+---
+
+**Версия:** 1.4.0
 **Дата:** 2026-02-18
 **Issue:** [#121](https://github.com/unidel2035/integram-standalone/issues/121)

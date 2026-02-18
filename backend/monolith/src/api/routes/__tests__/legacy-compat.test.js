@@ -571,4 +571,254 @@ describe('Legacy Compatibility Layer', () => {
       });
     });
   });
+
+  describe('Phase 3 - Metadata and Query Actions', () => {
+    it('should define obj_meta response format', () => {
+      const response = {
+        id: '1001',
+        up: '1',
+        type: '18',
+        val: 'TestUser',
+        reqs: {
+          '1': {
+            id: '2001',
+            val: 'Пароль',
+            type: '6',
+            attrs: ':!NULL:'
+          },
+          '2': {
+            id: '2002',
+            val: 'Email',
+            type: '8',
+            attrs: ':ALIAS=email:'
+          }
+        }
+      };
+
+      expect(response.id).toBe('1001');
+      expect(response.reqs['1'].val).toBe('Пароль');
+      expect(Object.keys(response.reqs).length).toBe(2);
+    });
+
+    it('should define metadata response format for single type', () => {
+      const response = {
+        id: '18',
+        up: '0',
+        type: '8',
+        val: 'Пользователь',
+        unique: '10',
+        reqs: [
+          { num: 1, id: '20', val: 'Пароль', orig: '6', type: '6' },
+          { num: 2, id: '30', val: 'Телефон', orig: '8', type: '8' }
+        ]
+      };
+
+      expect(response.id).toBe('18');
+      expect(Array.isArray(response.reqs)).toBe(true);
+      expect(response.reqs[0].num).toBe(1);
+    });
+
+    it('should define metadata response format for all types', () => {
+      const response = [
+        { id: '18', up: '0', type: '8', val: 'Пользователь', unique: '10', reqs: [] },
+        { id: '42', up: '0', type: '8', val: 'Роль', unique: '11', reqs: [] },
+        { id: '125', up: '0', type: '8', val: 'Токен', unique: '12', reqs: [] }
+      ];
+
+      expect(Array.isArray(response)).toBe(true);
+      expect(response.length).toBe(3);
+      expect(response[0].val).toBe('Пользователь');
+    });
+  });
+
+  describe('Phase 3 - JWT and Authentication', () => {
+    it('should define jwt response format', () => {
+      const response = {
+        success: true,
+        valid: true,
+        user: {
+          id: 1001,
+          login: 'testuser',
+          role: 'admin',
+          role_id: 42
+        },
+        xsrf: 'abc123',
+        token: 'xyz789'
+      };
+
+      expect(response.success).toBe(true);
+      expect(response.user.id).toBe(1001);
+      expect(response.xsrf).toBe('abc123');
+    });
+
+    it('should define confirm response format', () => {
+      const response = {
+        success: true,
+        message: 'Password updated successfully'
+      };
+
+      expect(response.success).toBe(true);
+      expect(response.message).toBe('Password updated successfully');
+    });
+  });
+
+  describe('Phase 3 - File Management', () => {
+    it('should define upload response format', () => {
+      const response = {
+        success: true,
+        message: 'File uploaded successfully',
+        path: '/download/mydb/'
+      };
+
+      expect(response.success).toBe(true);
+      expect(response.path).toContain('download');
+    });
+
+    it('should define dir_admin response format', () => {
+      const response = {
+        success: true,
+        folder: 'download',
+        path: '/path/to/files',
+        add_path: '',
+        directories: [
+          { name: 'folder1', type: 'directory' },
+          { name: 'folder2', type: 'directory' }
+        ],
+        files: [
+          { name: 'file1.txt', type: 'file', size: 1024, modified: '2024-01-01T00:00:00.000Z' },
+          { name: 'file2.pdf', type: 'file', size: 2048, modified: '2024-01-02T00:00:00.000Z' }
+        ]
+      };
+
+      expect(response.success).toBe(true);
+      expect(Array.isArray(response.directories)).toBe(true);
+      expect(Array.isArray(response.files)).toBe(true);
+      expect(response.files[0].size).toBe(1024);
+    });
+
+    it('should validate filename to prevent directory traversal', () => {
+      const validFilenames = ['file.txt', 'document.pdf', 'image.png'];
+      const invalidFilenames = ['../file.txt', 'folder/file.txt', '..\\file.txt'];
+
+      validFilenames.forEach(filename => {
+        expect(filename.includes('..') || filename.includes('/')).toBe(false);
+      });
+
+      invalidFilenames.forEach(filename => {
+        expect(filename.includes('..') || filename.includes('/')).toBe(true);
+      });
+    });
+  });
+
+  describe('Phase 3 - Reports and Export', () => {
+    it('should define report list response format', () => {
+      const response = {
+        success: true,
+        reports: [
+          { id: 100, name: 'Sales Report', order: 1 },
+          { id: 101, name: 'User Activity', order: 2 }
+        ]
+      };
+
+      expect(response.success).toBe(true);
+      expect(Array.isArray(response.reports)).toBe(true);
+      expect(response.reports.length).toBe(2);
+    });
+
+    it('should define report detail response format', () => {
+      const response = {
+        success: true,
+        report: {
+          id: 100,
+          name: 'Sales Report',
+          columns: [
+            { id: 201, name: 'Date', type: 9, order: 1 },
+            { id: 202, name: 'Amount', type: 13, order: 2 },
+            { id: 203, name: 'Customer', type: 18, order: 3 }
+          ]
+        }
+      };
+
+      expect(response.report.id).toBe(100);
+      expect(Array.isArray(response.report.columns)).toBe(true);
+      expect(response.report.columns[0].name).toBe('Date');
+    });
+
+    it('should format CSV export correctly', () => {
+      const rows = [
+        { id: 1, val: 'Item 1', up: 0, ord: 1 },
+        { id: 2, val: 'Item "with quotes"', up: 0, ord: 2 }
+      ];
+
+      const csvHeader = 'id,value,parent,order\n';
+      const csvRows = rows.map(r => `${r.id},"${(r.val || '').replace(/"/g, '""')}",${r.up},${r.ord}`).join('\n');
+      const csv = csvHeader + csvRows;
+
+      expect(csv).toContain('id,value,parent,order');
+      expect(csv).toContain('"Item ""with quotes"""'); // Properly escaped quotes
+    });
+  });
+
+  describe('Phase 3 - Database Creation', () => {
+    it('should validate new database name', () => {
+      const USER_DB_MASK = /^[a-z][a-z0-9]{2,14}$/i;
+
+      const validNames = ['mydb', 'test123', 'ABC', 'NewDatabase'];
+      const invalidNames = ['12db', 'ab', 'verylongdatabasenameover15', 'test-db', 'test.db'];
+
+      validNames.forEach(name => {
+        expect(USER_DB_MASK.test(name)).toBe(true);
+      });
+
+      invalidNames.forEach(name => {
+        expect(USER_DB_MASK.test(name)).toBe(false);
+      });
+    });
+
+    it('should define reserved database names', () => {
+      const reservedNames = ['my', 'admin', 'root', 'system', 'test', 'demo', 'api', 'health'];
+
+      expect(reservedNames.includes('my')).toBe(true);
+      expect(reservedNames.includes('admin')).toBe(true);
+      expect(reservedNames.length).toBe(8);
+    });
+
+    it('should define _new_db response format', () => {
+      const response = {
+        status: 'Ok',
+        id: 'newdatabase',
+        database: 'newdatabase',
+        template: 'empty',
+        message: 'Database "newdatabase" created successfully'
+      };
+
+      expect(response.status).toBe('Ok');
+      expect(response.database).toBe('newdatabase');
+    });
+  });
+
+  describe('Phase 3 actions list', () => {
+    it('should define all Phase 3 actions', () => {
+      const phase3Actions = [
+        // Metadata
+        'obj_meta',
+        'metadata',
+        // Auth
+        'jwt',
+        'confirm',
+        'login',
+        // Database
+        '_new_db',
+        // Files
+        'upload',
+        'download',
+        'dir_admin',
+        // Reports
+        'report',
+        'export'
+      ];
+
+      expect(phase3Actions.length).toBe(11);
+    });
+  });
 });

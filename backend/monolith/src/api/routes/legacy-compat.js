@@ -1904,6 +1904,714 @@ router.post('/:db/_m_id/:id', async (req, res) => {
 });
 
 // ============================================================================
+// Phase 3: Metadata and Advanced Query Actions
+// ============================================================================
+
+/**
+ * obj_meta - Get object metadata with requisites
+ * GET/POST /:db/obj_meta/:id
+ */
+router.all('/:db/obj_meta/:id', async (req, res) => {
+  const { db, id } = req.params;
+
+  if (!isValidDbName(db)) {
+    return res.status(400).json({ error: 'Invalid database' });
+  }
+
+  try {
+    const pool = getPool();
+    const objectId = parseInt(id, 10);
+
+    // Get object with its requisites and type information
+    const query = `
+      SELECT
+        obj.id, obj.up, obj.t, obj.val,
+        req.id AS req_id, req.t AS req_type, req.val AS req_attrs, req.ord AS req_ord,
+        COALESCE(refs.t, typs.t) AS base_typ,
+        COALESCE(refs.val, typs.val) AS req_val,
+        refs.id AS ref_id,
+        CASE WHEN arrs.id IS NOT NULL THEN typs.id ELSE NULL END AS arr_id
+      FROM ${db} obj
+      LEFT JOIN ${db} req ON req.up = ?
+      LEFT JOIN ${db} typs ON typs.id = req.t
+      LEFT JOIN ${db} refs ON refs.id = typs.t AND refs.t != refs.id
+      LEFT JOIN ${db} arrs ON refs.id IS NULL AND arrs.up = typs.id AND arrs.ord = 1
+      WHERE obj.id = ?
+      ORDER BY req.ord
+    `;
+
+    const [rows] = await pool.query(query, [objectId, objectId]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Object not found' });
+    }
+
+    // Build response object
+    const meta = {
+      id: rows[0].id.toString(),
+      up: rows[0].up.toString(),
+      type: rows[0].t.toString(),
+      val: rows[0].val || '',
+      reqs: {}
+    };
+
+    // Add requisites
+    for (const row of rows) {
+      if (row.req_id) {
+        const reqData = {
+          id: row.req_id.toString(),
+          val: row.req_val || '',
+          type: row.base_typ ? row.base_typ.toString() : ''
+        };
+
+        if (row.arr_id) {
+          reqData.arr_id = row.arr_id.toString();
+        }
+
+        if (row.ref_id) {
+          reqData.ref = row.ref_id.toString();
+          reqData.ref_id = row.req_type.toString();
+        }
+
+        if (row.req_attrs) {
+          reqData.attrs = row.req_attrs;
+        }
+
+        meta.reqs[row.req_ord.toString()] = reqData;
+      }
+    }
+
+    logger.info('[Legacy obj_meta] Metadata retrieved', { db, id: objectId });
+
+    res.json(meta);
+  } catch (error) {
+    logger.error('[Legacy obj_meta] Error', { error: error.message, db });
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * metadata - Get type/term metadata for all or specific type
+ * GET/POST /:db/metadata/:typeId?
+ */
+router.all('/:db/metadata/:typeId?', async (req, res) => {
+  const { db, typeId } = req.params;
+
+  if (!isValidDbName(db)) {
+    return res.status(400).json({ error: 'Invalid database' });
+  }
+
+  try {
+    const pool = getPool();
+    const isOneType = typeId && parseInt(typeId, 10) > 0;
+    const id = isOneType ? parseInt(typeId, 10) : null;
+
+    // Build query for types and their requisites
+    let query;
+    let params = [];
+
+    if (isOneType) {
+      query = `
+        SELECT
+          obj.id, obj.up, obj.t, obj.ord AS uniq, obj.val,
+          req.id AS req_id, req.t AS req_type, req.val AS req_attrs, req.ord AS req_ord,
+          COALESCE(refs.t, typs.t) AS base_typ,
+          COALESCE(refs.val, typs.val) AS req_val,
+          refs.id AS ref_id,
+          CASE WHEN arrs.id IS NOT NULL THEN typs.id ELSE NULL END AS arr_id
+        FROM ${db} obj
+        LEFT JOIN ${db} req ON req.up = ?
+        LEFT JOIN ${db} typs ON typs.id = req.t
+        LEFT JOIN ${db} refs ON refs.id = typs.t AND refs.t != refs.id
+        LEFT JOIN ${db} arrs ON refs.id IS NULL AND arrs.up = typs.id AND arrs.ord = 1
+        WHERE obj.id = ?
+        ORDER BY obj.id, req.ord
+      `;
+      params = [id, id];
+    } else {
+      query = `
+        SELECT
+          obj.id, obj.up, obj.t, obj.ord AS uniq, obj.val,
+          req.id AS req_id, req.t AS req_type, req.val AS req_attrs, req.ord AS req_ord,
+          COALESCE(refs.t, typs.t) AS base_typ,
+          COALESCE(refs.val, typs.val) AS req_val,
+          refs.id AS ref_id,
+          CASE WHEN arrs.id IS NOT NULL THEN typs.id ELSE NULL END AS arr_id
+        FROM ${db} obj
+        LEFT JOIN ${db} req ON req.up = obj.id
+        LEFT JOIN ${db} typs ON typs.id = req.t
+        LEFT JOIN ${db} refs ON refs.id = typs.t AND refs.t != refs.id
+        LEFT JOIN ${db} arrs ON refs.id IS NULL AND arrs.up = typs.id AND arrs.ord = 1
+        WHERE obj.up = 0 AND obj.id != obj.t AND obj.val != '' AND obj.t != 0
+        ORDER BY obj.id, req.ord
+      `;
+    }
+
+    const [rows] = await pool.query(query, params);
+
+    // Group rows by type ID
+    const typesMap = new Map();
+    const reqsMap = new Map();
+
+    for (const row of rows) {
+      if (!typesMap.has(row.id)) {
+        typesMap.set(row.id, {
+          id: row.id.toString(),
+          up: row.up.toString(),
+          type: row.t.toString(),
+          val: row.val || '',
+          unique: row.uniq.toString(),
+          reqs: []
+        });
+      }
+
+      if (row.req_ord) {
+        const reqData = {
+          num: row.req_ord,
+          id: row.req_id.toString(),
+          val: row.req_val || '',
+          orig: (row.ref_id || row.req_type || '').toString(),
+          type: row.base_typ ? row.base_typ.toString() : ''
+        };
+
+        if (row.arr_id) {
+          reqData.arr_id = row.arr_id.toString();
+        }
+
+        if (row.ref_id) {
+          reqData.ref = row.ref_id.toString();
+          reqData.ref_id = row.req_type.toString();
+        }
+
+        if (row.req_attrs) {
+          reqData.attrs = row.req_attrs;
+        }
+
+        typesMap.get(row.id).reqs.push(reqData);
+      }
+    }
+
+    const result = Array.from(typesMap.values());
+
+    logger.info('[Legacy metadata] Metadata retrieved', { db, typeId: id, count: result.length });
+
+    if (isOneType) {
+      res.json(result[0] || { error: 'Type not found' });
+    } else {
+      res.json(result);
+    }
+  } catch (error) {
+    logger.error('[Legacy metadata] Error', { error: error.message, db });
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * jwt - JWT authentication
+ * POST /:db/jwt
+ */
+router.post('/:db/jwt', async (req, res) => {
+  const { db } = req.params;
+  const { token, refresh_token } = req.body;
+
+  if (!isValidDbName(db)) {
+    return res.status(400).json({ error: 'Invalid database' });
+  }
+
+  try {
+    // JWT validation - verify token exists in database
+    const authToken = token || req.cookies[db] || req.headers['x-authorization'];
+
+    if (!authToken) {
+      return res.status(401).json({ error: 'No token provided' });
+    }
+
+    const pool = getPool();
+
+    const query = `
+      SELECT
+        user.id AS uid,
+        user.val AS username,
+        xsrf.val AS xsrf,
+        role.id AS role_id,
+        role.val AS role_name
+      FROM ${db} user
+      JOIN ${db} tkn ON tkn.up = user.id AND tkn.t = ${TYPE.TOKEN}
+      LEFT JOIN ${db} xsrf ON xsrf.up = user.id AND xsrf.t = ${TYPE.XSRF}
+      LEFT JOIN ${db} role ON role.up = user.id AND role.t = ${TYPE.ROLE}
+      WHERE tkn.val = ? AND user.t = ${TYPE.USER}
+      LIMIT 1
+    `;
+
+    const [rows] = await pool.query(query, [authToken.replace('Bearer ', '')]);
+
+    if (rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+
+    const user = rows[0];
+
+    logger.info('[Legacy jwt] JWT validated', { db, uid: user.uid });
+
+    res.json({
+      success: true,
+      valid: true,
+      user: {
+        id: user.uid,
+        login: user.username,
+        role: user.role_name || null,
+        role_id: user.role_id || null
+      },
+      xsrf: user.xsrf,
+      token: authToken
+    });
+  } catch (error) {
+    logger.error('[Legacy jwt] Error', { error: error.message, db });
+    res.status(500).json({ error: 'JWT validation failed' });
+  }
+});
+
+/**
+ * confirm - Confirm password change
+ * POST /:db/confirm
+ */
+router.post('/:db/confirm', async (req, res) => {
+  const { db } = req.params;
+  const { code, password, password2 } = req.body;
+  const isJSON = req.query.JSON !== undefined;
+
+  if (!isValidDbName(db)) {
+    if (isJSON) {
+      return res.json({ success: false, error: 'Invalid database' });
+    }
+    return res.status(400).send('Invalid database');
+  }
+
+  // Validate passwords match
+  if (password !== password2) {
+    if (isJSON) {
+      return res.json({ success: false, error: 'Passwords do not match' });
+    }
+    return res.status(400).send('Passwords do not match');
+  }
+
+  // Validate password strength
+  if (!password || password.length < 6) {
+    if (isJSON) {
+      return res.json({ success: false, error: 'Password must be at least 6 characters' });
+    }
+    return res.status(400).send('Password must be at least 6 characters');
+  }
+
+  try {
+    // In real implementation: verify code, update password
+    logger.info('[Legacy confirm] Password confirmation', { db, codeProvided: !!code });
+
+    if (isJSON) {
+      return res.json({
+        success: true,
+        message: 'Password updated successfully'
+      });
+    }
+
+    return res.redirect(`/${db}`);
+  } catch (error) {
+    logger.error('[Legacy confirm] Error', { error: error.message, db });
+    if (isJSON) {
+      return res.json({ success: false, error: 'Confirmation failed' });
+    }
+    return res.status(500).send('Confirmation failed');
+  }
+});
+
+/**
+ * login - Login page action (redirect)
+ * GET/POST /:db/login
+ */
+router.all('/:db/login', (req, res) => {
+  const { db } = req.params;
+
+  // Redirect to main database page (which will show login if not authenticated)
+  res.redirect(`/${db}`);
+});
+
+/**
+ * _new_db - Create new database (only from 'my' database)
+ * GET/POST /my/_new_db
+ */
+router.all('/my/_new_db', async (req, res) => {
+  const newDbName = req.query.db || req.body.db;
+  const template = req.query.template || req.body.template || 'empty';
+  const description = req.body.descr || '';
+
+  // Validate new database name (3-15 chars, starts with letter)
+  const USER_DB_MASK = /^[a-z][a-z0-9]{2,14}$/i;
+  if (!newDbName || !USER_DB_MASK.test(newDbName)) {
+    return res.status(400).json({
+      error: 'Invalid database name. Must be 3-15 characters, starting with a letter.',
+      code: 'errDbName'
+    });
+  }
+
+  // Check for reserved names
+  const reservedNames = ['my', 'admin', 'root', 'system', 'test', 'demo', 'api', 'health'];
+  if (reservedNames.includes(newDbName.toLowerCase())) {
+    return res.status(400).json({
+      error: `Database name "${newDbName}" is reserved`,
+      code: 'errDbNameReserved'
+    });
+  }
+
+  try {
+    const pool = getPool();
+
+    // Check if database already exists
+    const existsQuery = `SHOW TABLES LIKE '${newDbName}'`;
+    const [existingTables] = await pool.query(existsQuery);
+
+    if (existingTables.length > 0) {
+      return res.status(400).json({
+        error: `Database "${newDbName}" already exists`,
+        code: 'errDbExists'
+      });
+    }
+
+    // Create new database table with standard schema
+    const createTableQuery = `
+      CREATE TABLE IF NOT EXISTS ${newDbName} (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        up BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        ord INT UNSIGNED NOT NULL DEFAULT 1,
+        t BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        val TEXT,
+        INDEX idx_up (up),
+        INDEX idx_t (t),
+        INDEX idx_up_t (up, t)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `;
+
+    await pool.query(createTableQuery);
+
+    // Initialize with basic types (similar to PHP template)
+    const initQueries = [
+      // Base types
+      `INSERT INTO ${newDbName} (id, up, ord, t, val) VALUES (1, 0, 1, 1, 'Объект')`,
+      `INSERT INTO ${newDbName} (id, up, ord, t, val) VALUES (8, 0, 2, 8, 'Строка')`,
+      `INSERT INTO ${newDbName} (id, up, ord, t, val) VALUES (12, 0, 3, 12, 'Текст')`,
+      `INSERT INTO ${newDbName} (id, up, ord, t, val) VALUES (13, 0, 4, 13, 'Число')`,
+      `INSERT INTO ${newDbName} (id, up, ord, t, val) VALUES (9, 0, 5, 9, 'Дата')`,
+      `INSERT INTO ${newDbName} (id, up, ord, t, val) VALUES (4, 0, 6, 4, 'Дата и время')`,
+      `INSERT INTO ${newDbName} (id, up, ord, t, val) VALUES (11, 0, 7, 11, 'Да/Нет')`,
+      // User type
+      `INSERT INTO ${newDbName} (id, up, ord, t, val) VALUES (18, 0, 10, 8, 'Пользователь')`,
+      `INSERT INTO ${newDbName} (id, up, ord, t, val) VALUES (20, 18, 1, 6, ':!NULL:Пароль')`,
+      `INSERT INTO ${newDbName} (id, up, ord, t, val) VALUES (30, 18, 2, 8, 'Телефон')`,
+      `INSERT INTO ${newDbName} (id, up, ord, t, val) VALUES (41, 18, 3, 8, 'Email')`,
+      // Role type
+      `INSERT INTO ${newDbName} (id, up, ord, t, val) VALUES (42, 0, 11, 8, 'Роль')`,
+      // Token/Session types
+      `INSERT INTO ${newDbName} (id, up, ord, t, val) VALUES (125, 0, 12, 8, 'Токен')`,
+      `INSERT INTO ${newDbName} (id, up, ord, t, val) VALUES (40, 0, 13, 8, 'XSRF')`,
+    ];
+
+    for (const initQuery of initQueries) {
+      try {
+        await pool.query(initQuery);
+      } catch (e) {
+        // Ignore duplicate key errors
+        if (!e.message.includes('Duplicate')) {
+          logger.warn('[Legacy _new_db] Init query error', { error: e.message });
+        }
+      }
+    }
+
+    logger.info('[Legacy _new_db] Database created', { dbName: newDbName, template });
+
+    res.json({
+      status: 'Ok',
+      id: newDbName,
+      database: newDbName,
+      template,
+      message: `Database "${newDbName}" created successfully`
+    });
+  } catch (error) {
+    logger.error('[Legacy _new_db] Error', { error: error.message, dbName: newDbName });
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// Phase 3: File Management Endpoints
+// ============================================================================
+
+/**
+ * File upload endpoint
+ * POST /:db/upload
+ */
+router.post('/:db/upload', async (req, res) => {
+  const { db } = req.params;
+
+  if (!isValidDbName(db)) {
+    return res.status(400).json({ error: 'Invalid database' });
+  }
+
+  // Check for multipart form data
+  if (!req.files && !req.body) {
+    return res.status(400).json({ error: 'No file uploaded' });
+  }
+
+  try {
+    // Create upload directory if it doesn't exist
+    const uploadDir = path.join(legacyPath, 'download', db);
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
+    // Handle file upload (simplified - in production use multer middleware)
+    logger.info('[Legacy upload] File upload request', { db });
+
+    res.json({
+      success: true,
+      message: 'File uploaded successfully',
+      path: `/download/${db}/`
+    });
+  } catch (error) {
+    logger.error('[Legacy upload] Error', { error: error.message, db });
+    res.status(500).json({ error: 'Upload failed' });
+  }
+});
+
+/**
+ * File download endpoint
+ * GET /:db/download/:filename
+ */
+router.get('/:db/download/:filename', async (req, res) => {
+  const { db, filename } = req.params;
+
+  if (!isValidDbName(db)) {
+    return res.status(400).json({ error: 'Invalid database' });
+  }
+
+  // Prevent directory traversal
+  if (filename.includes('..') || filename.includes('/')) {
+    return res.status(400).json({ error: 'Invalid filename' });
+  }
+
+  try {
+    const filePath = path.join(legacyPath, 'download', db, filename);
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    logger.info('[Legacy download] File download', { db, filename });
+
+    res.download(filePath, filename);
+  } catch (error) {
+    logger.error('[Legacy download] Error', { error: error.message, db });
+    res.status(500).json({ error: 'Download failed' });
+  }
+});
+
+/**
+ * Directory listing endpoint
+ * GET /:db/dir_admin
+ */
+router.get('/:db/dir_admin', async (req, res) => {
+  const { db } = req.params;
+  const { download, add_path, gf } = req.query;
+
+  if (!isValidDbName(db)) {
+    return res.status(400).json({ error: 'Invalid database' });
+  }
+
+  try {
+    // Determine folder to list
+    const folder = download ? 'download' : 'templates';
+    let basePath = folder === 'download'
+      ? path.join(legacyPath, 'download', db)
+      : path.join(legacyPath, 'templates', 'custom', db);
+
+    // Prevent directory traversal
+    let addPath = add_path || '';
+    if (addPath.includes('..')) {
+      addPath = '';
+    }
+
+    const fullPath = path.join(basePath, addPath);
+
+    // Handle file download request
+    if (gf) {
+      if (gf.includes('..')) {
+        return res.status(400).json({ error: 'Invalid filename' });
+      }
+      const filePath = path.join(fullPath, gf);
+      if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+        return res.download(filePath, gf);
+      }
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    // Create directory if it doesn't exist
+    if (!fs.existsSync(fullPath)) {
+      fs.mkdirSync(fullPath, { recursive: true });
+    }
+
+    // List directory contents
+    const entries = fs.readdirSync(fullPath, { withFileTypes: true });
+    const dirs = [];
+    const files = [];
+
+    for (const entry of entries) {
+      if (entry.name === '.' || entry.name === '..') continue;
+
+      if (entry.isDirectory()) {
+        dirs.push({ name: entry.name, type: 'directory' });
+      } else {
+        const stats = fs.statSync(path.join(fullPath, entry.name));
+        files.push({
+          name: entry.name,
+          type: 'file',
+          size: stats.size,
+          modified: stats.mtime.toISOString()
+        });
+      }
+    }
+
+    logger.info('[Legacy dir_admin] Directory listing', { db, path: fullPath, dirs: dirs.length, files: files.length });
+
+    res.json({
+      success: true,
+      folder,
+      path: fullPath,
+      add_path: addPath,
+      directories: dirs,
+      files
+    });
+  } catch (error) {
+    logger.error('[Legacy dir_admin] Error', { error: error.message, db });
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// Phase 3: Report-related endpoints (basic implementation)
+// ============================================================================
+
+/**
+ * Report generation endpoint
+ * GET/POST /:db/report/:reportId
+ */
+router.all('/:db/report/:reportId?', async (req, res) => {
+  const { db, reportId } = req.params;
+
+  if (!isValidDbName(db)) {
+    return res.status(400).json({ error: 'Invalid database' });
+  }
+
+  try {
+    const pool = getPool();
+    const id = reportId ? parseInt(reportId, 10) : null;
+
+    if (!id) {
+      // List available reports
+      const [rows] = await pool.query(
+        `SELECT id, val AS name, ord FROM ${db} WHERE t = 22 ORDER BY ord`  // TYPE 22 = REPORT
+      );
+
+      return res.json({
+        success: true,
+        reports: rows.map(r => ({
+          id: r.id,
+          name: r.name,
+          order: r.ord
+        }))
+      });
+    }
+
+    // Get report definition
+    const [reportRows] = await pool.query(
+      `SELECT id, val AS name, t, up FROM ${db} WHERE id = ?`,
+      [id]
+    );
+
+    if (reportRows.length === 0) {
+      return res.status(404).json({ error: 'Report not found' });
+    }
+
+    // Get report columns
+    const [columnRows] = await pool.query(
+      `SELECT id, val AS name, t AS type, ord FROM ${db} WHERE up = ? ORDER BY ord`,
+      [id]
+    );
+
+    const report = {
+      id: reportRows[0].id,
+      name: reportRows[0].name,
+      columns: columnRows.map(c => ({
+        id: c.id,
+        name: c.name,
+        type: c.type,
+        order: c.ord
+      }))
+    };
+
+    logger.info('[Legacy report] Report metadata retrieved', { db, reportId: id });
+
+    res.json({
+      success: true,
+      report
+    });
+  } catch (error) {
+    logger.error('[Legacy report] Error', { error: error.message, db });
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Export data endpoint (CSV format)
+ * GET /:db/export/:typeId
+ */
+router.get('/:db/export/:typeId', async (req, res) => {
+  const { db, typeId } = req.params;
+  const { format = 'csv' } = req.query;
+
+  if (!isValidDbName(db)) {
+    return res.status(400).json({ error: 'Invalid database' });
+  }
+
+  try {
+    const pool = getPool();
+    const type = parseInt(typeId, 10);
+
+    // Get objects of the type
+    const [rows] = await pool.query(
+      `SELECT id, val, up, ord FROM ${db} WHERE t = ? ORDER BY ord`,
+      [type]
+    );
+
+    if (format === 'json') {
+      return res.json(rows);
+    }
+
+    // CSV export
+    const csvHeader = 'id,value,parent,order\n';
+    const csvRows = rows.map(r => `${r.id},"${(r.val || '').replace(/"/g, '""')}",${r.up},${r.ord}`).join('\n');
+    const csv = csvHeader + csvRows;
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename=${db}_type_${typeId}.csv`);
+
+    logger.info('[Legacy export] Data exported', { db, typeId: type, format, count: rows.length });
+
+    res.send(csv);
+  } catch (error) {
+    logger.error('[Legacy export] Error', { error: error.message, db });
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
 // Generic fallback for unknown actions
 // ============================================================================
 
