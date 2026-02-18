@@ -4,6 +4,10 @@
   "type": "module",
   "description": "Database abstraction layer for Integram services - wraps MySQL operations with logging and metrics",
   "main": "index.js",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
   "exports": {
     ".": "./index.js",
     "./connection": "./connection.js",
@@ -26,6 +30,9 @@
   },
   "peerDependencies": {
     "mysql2": "^3.0.0"
+  },
+  "devDependencies": {
+    "vitest": "^1.0.0"
   },
   "author": "Integram Team",
   "license": "MIT",

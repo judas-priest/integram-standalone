@@ -1,13 +1,12 @@
 /**
  * @integram/database - Query Builder Tests
  *
- * Tests for the SQL query builder that ensures proper parameterized queries
- * and backward compatibility with PHP monolith query construction.
+ * Unit tests for the QueryBuilder class and static query builder functions.
+ * These tests verify SQL generation without requiring a database connection.
  */
 
 import { describe, it, expect } from 'vitest';
-import {
-  QueryBuilder,
+import QueryBuilder, {
   buildInsert,
   buildUpdateVal,
   buildUpdateType,
@@ -18,295 +17,377 @@ import {
   buildCalcOrder,
 } from '../query-builder.js';
 
-describe('@integram/database Query Builder', () => {
+describe('@integram/database QueryBuilder', () => {
   describe('QueryBuilder class', () => {
-    it('should create a basic SELECT query', () => {
-      const qb = QueryBuilder.from('testdb');
-      const { sql, params } = qb.buildSelect();
+    describe('Basic SELECT queries', () => {
+      it('should build simple SELECT * query', () => {
+        const query = QueryBuilder.from('test_db');
+        const { sql, params } = query.buildSelect();
 
-      expect(sql).toBe('SELECT * FROM testdb');
-      expect(params).toEqual([]);
-    });
+        expect(sql).toBe('SELECT * FROM test_db');
+        expect(params).toEqual([]);
+      });
 
-    it('should support selecting specific columns', () => {
-      const qb = QueryBuilder.from('testdb').select('id', 'val', 't');
-      const { sql, params } = qb.buildSelect();
+      it('should build SELECT with specific columns', () => {
+        const query = QueryBuilder.from('test_db')
+          .select('id', 'val', 't');
+        const { sql, params } = query.buildSelect();
 
-      expect(sql).toBe('SELECT id, val, t FROM testdb');
-      expect(params).toEqual([]);
-    });
+        expect(sql).toBe('SELECT id, val, t FROM test_db');
+        expect(params).toEqual([]);
+      });
 
-    it('should support DISTINCT modifier', () => {
-      const qb = QueryBuilder.from('testdb').distinct().select('t');
-      const { sql, params } = qb.buildSelect();
+      it('should build SELECT DISTINCT', () => {
+        const query = QueryBuilder.from('test_db')
+          .select('val')
+          .distinct();
+        const { sql, params } = query.buildSelect();
 
-      expect(sql).toBe('SELECT DISTINCT t FROM testdb');
-      expect(params).toEqual([]);
+        expect(sql).toBe('SELECT DISTINCT val FROM test_db');
+        expect(params).toEqual([]);
+      });
     });
 
     describe('WHERE conditions', () => {
-      it('should add basic WHERE equals', () => {
-        const qb = QueryBuilder.from('testdb').whereEquals('id', 123);
-        const { sql, params } = qb.buildSelect();
+      it('should build simple WHERE equals', () => {
+        const query = QueryBuilder.from('test_db')
+          .whereEquals('id', 123);
+        const { sql, params } = query.buildSelect();
 
-        expect(sql).toBe('SELECT * FROM testdb WHERE id = ?');
+        expect(sql).toBe('SELECT * FROM test_db WHERE id = ?');
         expect(params).toEqual([123]);
       });
 
-      it('should add WHERE with operator', () => {
-        const qb = QueryBuilder.from('testdb').where('t', '>', 10);
-        const { sql, params } = qb.buildSelect();
+      it('should build WHERE with custom operator', () => {
+        const query = QueryBuilder.from('test_db')
+          .where('ord', '>', 10);
+        const { sql, params } = query.buildSelect();
 
-        expect(sql).toBe('SELECT * FROM testdb WHERE t > ?');
+        expect(sql).toBe('SELECT * FROM test_db WHERE ord > ?');
         expect(params).toEqual([10]);
       });
 
-      it('should support whereId helper', () => {
-        const qb = QueryBuilder.from('testdb').whereId(42);
-        const { sql, params } = qb.buildSelect();
+      it('should build whereId helper', () => {
+        const query = QueryBuilder.from('test_db')
+          .whereId(42);
+        const { sql, params } = query.buildSelect();
 
-        expect(sql).toBe('SELECT * FROM testdb WHERE id = ?');
+        expect(sql).toBe('SELECT * FROM test_db WHERE id = ?');
         expect(params).toEqual([42]);
       });
 
-      it('should support whereType helper', () => {
-        const qb = QueryBuilder.from('testdb').whereType(18);
-        const { sql, params } = qb.buildSelect();
+      it('should build whereType helper', () => {
+        const query = QueryBuilder.from('test_db')
+          .whereType(18);
+        const { sql, params } = query.buildSelect();
 
-        expect(sql).toBe('SELECT * FROM testdb WHERE t = ?');
+        expect(sql).toBe('SELECT * FROM test_db WHERE t = ?');
         expect(params).toEqual([18]);
       });
 
-      it('should support whereParent helper', () => {
-        const qb = QueryBuilder.from('testdb').whereParent(5);
-        const { sql, params } = qb.buildSelect();
+      it('should build whereParent helper', () => {
+        const query = QueryBuilder.from('test_db')
+          .whereParent(100);
+        const { sql, params } = query.buildSelect();
 
-        expect(sql).toBe('SELECT * FROM testdb WHERE up = ?');
-        expect(params).toEqual([5]);
+        expect(sql).toBe('SELECT * FROM test_db WHERE up = ?');
+        expect(params).toEqual([100]);
       });
 
-      it('should support IS NULL condition', () => {
-        const qb = QueryBuilder.from('testdb').whereNull('val');
-        const { sql, params } = qb.buildSelect();
+      it('should build WHERE IN', () => {
+        const query = QueryBuilder.from('test_db')
+          .where('id', 'IN', [1, 2, 3]);
+        const { sql, params } = query.buildSelect();
 
-        expect(sql).toBe('SELECT * FROM testdb WHERE val IS NULL');
-        expect(params).toEqual([]);
-      });
-
-      it('should support IS NOT NULL condition', () => {
-        const qb = QueryBuilder.from('testdb').whereNull('val', false);
-        const { sql, params } = qb.buildSelect();
-
-        expect(sql).toBe('SELECT * FROM testdb WHERE val IS NOT NULL');
-        expect(params).toEqual([]);
-      });
-
-      it('should support IN condition', () => {
-        const qb = QueryBuilder.from('testdb').where('t', 'IN', [1, 2, 3]);
-        const { sql, params } = qb.buildSelect();
-
-        expect(sql).toBe('SELECT * FROM testdb WHERE t IN (?, ?, ?)');
+        expect(sql).toBe('SELECT * FROM test_db WHERE id IN (?, ?, ?)');
         expect(params).toEqual([1, 2, 3]);
       });
 
-      it('should support LIKE condition', () => {
-        const qb = QueryBuilder.from('testdb').where('val', 'LIKE', '%test%');
-        const { sql, params } = qb.buildSelect();
+      it('should build WHERE NOT IN', () => {
+        const query = QueryBuilder.from('test_db')
+          .where('id', 'NOT IN', [5, 6]);
+        const { sql, params } = query.buildSelect();
 
-        expect(sql).toBe('SELECT * FROM testdb WHERE val LIKE ?');
+        expect(sql).toBe('SELECT * FROM test_db WHERE id NOT IN (?, ?)');
+        expect(params).toEqual([5, 6]);
+      });
+
+      it('should build WHERE LIKE', () => {
+        const query = QueryBuilder.from('test_db')
+          .where('val', 'LIKE', '%test%');
+        const { sql, params } = query.buildSelect();
+
+        expect(sql).toBe('SELECT * FROM test_db WHERE val LIKE ?');
         expect(params).toEqual(['%test%']);
       });
 
-      it('should support BETWEEN condition', () => {
-        const qb = QueryBuilder.from('testdb').where('ord', 'BETWEEN', [1, 10]);
-        const { sql, params } = qb.buildSelect();
+      it('should build WHERE BETWEEN', () => {
+        const query = QueryBuilder.from('test_db')
+          .where('ord', 'BETWEEN', [10, 20]);
+        const { sql, params } = query.buildSelect();
 
-        expect(sql).toBe('SELECT * FROM testdb WHERE ord BETWEEN ? AND ?');
-        expect(params).toEqual([1, 10]);
+        expect(sql).toBe('SELECT * FROM test_db WHERE ord BETWEEN ? AND ?');
+        expect(params).toEqual([10, 20]);
+      });
+
+      it('should build WHERE IS NULL', () => {
+        const query = QueryBuilder.from('test_db')
+          .whereNull('val', true);
+        const { sql, params } = query.buildSelect();
+
+        expect(sql).toBe('SELECT * FROM test_db WHERE val IS NULL');
+        expect(params).toEqual([]);
+      });
+
+      it('should build WHERE IS NOT NULL', () => {
+        const query = QueryBuilder.from('test_db')
+          .whereNull('val', false);
+        const { sql, params } = query.buildSelect();
+
+        expect(sql).toBe('SELECT * FROM test_db WHERE val IS NOT NULL');
+        expect(params).toEqual([]);
       });
 
       it('should combine multiple WHERE conditions with AND', () => {
-        const qb = QueryBuilder.from('testdb')
+        const query = QueryBuilder.from('test_db')
           .whereType(18)
-          .whereParent(1)
-          .where('val', '!=', '');
-        const { sql, params } = qb.buildSelect();
+          .whereParent(100)
+          .where('ord', '>', 5);
+        const { sql, params } = query.buildSelect();
 
-        expect(sql).toBe('SELECT * FROM testdb WHERE t = ? AND up = ? AND val != ?');
-        expect(params).toEqual([18, 1, '']);
-      });
-
-      it('should reject columns with injection patterns', () => {
-        const qb = QueryBuilder.from('testdb');
-        expect(() => qb.where('SELECT * FROM', '=', 'x')).toThrow();
-      });
-    });
-
-    describe('JOIN operations', () => {
-      it('should add LEFT JOIN', () => {
-        const qb = QueryBuilder.from('testdb')
-          .leftJoin('testdb', 'r', 'r.up = testdb.id');
-        const { sql } = qb.buildSelect();
-
-        expect(sql).toContain('LEFT JOIN testdb r ON r.up = testdb.id');
-      });
-
-      it('should support parameterized JOIN conditions', () => {
-        const qb = QueryBuilder.from('testdb')
-          .leftJoin('testdb', 'r', 'r.up = testdb.id AND r.t = ?', [42]);
-        const { sql, params } = qb.buildSelect();
-
-        expect(sql).toContain('LEFT JOIN testdb r ON r.up = testdb.id AND r.t = ?');
-        expect(params).toContain(42);
+        expect(sql).toBe('SELECT * FROM test_db WHERE t = ? AND up = ? AND ord > ?');
+        expect(params).toEqual([18, 100, 5]);
       });
     });
 
     describe('ORDER BY', () => {
-      it('should add ORDER BY ASC', () => {
-        const qb = QueryBuilder.from('testdb').orderBy('id');
-        const { sql } = qb.buildSelect();
+      it('should build ORDER BY ascending', () => {
+        const query = QueryBuilder.from('test_db')
+          .orderBy('ord', 'ASC');
+        const { sql } = query.buildSelect();
 
-        expect(sql).toBe('SELECT * FROM testdb ORDER BY id ASC');
+        expect(sql).toBe('SELECT * FROM test_db ORDER BY ord ASC');
       });
 
-      it('should add ORDER BY DESC', () => {
-        const qb = QueryBuilder.from('testdb').orderBy('ord', 'DESC');
-        const { sql } = qb.buildSelect();
+      it('should build ORDER BY descending', () => {
+        const query = QueryBuilder.from('test_db')
+          .orderBy('id', 'DESC');
+        const { sql } = query.buildSelect();
 
-        expect(sql).toBe('SELECT * FROM testdb ORDER BY ord DESC');
+        expect(sql).toBe('SELECT * FROM test_db ORDER BY id DESC');
       });
 
-      it('should reject ORDER BY with injection patterns', () => {
-        const qb = QueryBuilder.from('testdb');
-        expect(() => qb.orderBy('DROP TABLE')).toThrow();
-      });
-    });
+      it('should build multiple ORDER BY clauses', () => {
+        const query = QueryBuilder.from('test_db')
+          .orderBy('t', 'ASC')
+          .orderBy('ord', 'DESC');
+        const { sql } = query.buildSelect();
 
-    describe('GROUP BY and HAVING', () => {
-      it('should add GROUP BY', () => {
-        const qb = QueryBuilder.from('testdb').groupBy('t');
-        const { sql } = qb.buildSelect();
-
-        expect(sql).toContain('GROUP BY t');
-      });
-
-      it('should add HAVING', () => {
-        const qb = QueryBuilder.from('testdb')
-          .groupBy('t')
-          .having('COUNT(*) > 1');
-        const { sql } = qb.buildSelect();
-
-        expect(sql).toContain('GROUP BY t');
-        expect(sql).toContain('HAVING COUNT(*) > 1');
+        expect(sql).toBe('SELECT * FROM test_db ORDER BY t ASC, ord DESC');
       });
     });
 
     describe('LIMIT and OFFSET', () => {
-      it('should add LIMIT', () => {
-        const qb = QueryBuilder.from('testdb').limit(10);
-        const { sql } = qb.buildSelect();
+      it('should build LIMIT', () => {
+        const query = QueryBuilder.from('test_db')
+          .limit(10);
+        const { sql } = query.buildSelect();
 
-        expect(sql).toBe('SELECT * FROM testdb LIMIT 10');
+        expect(sql).toBe('SELECT * FROM test_db LIMIT 10');
       });
 
-      it('should add OFFSET', () => {
-        const qb = QueryBuilder.from('testdb').limit(10).offset(20);
-        const { sql } = qb.buildSelect();
+      it('should build OFFSET', () => {
+        const query = QueryBuilder.from('test_db')
+          .limit(10)
+          .offset(20);
+        const { sql } = query.buildSelect();
 
-        expect(sql).toBe('SELECT * FROM testdb LIMIT 10 OFFSET 20');
+        expect(sql).toBe('SELECT * FROM test_db LIMIT 10 OFFSET 20');
+      });
+
+      it('should parse string numbers', () => {
+        const query = QueryBuilder.from('test_db')
+          .limit('25')
+          .offset('50');
+        const { sql } = query.buildSelect();
+
+        expect(sql).toBe('SELECT * FROM test_db LIMIT 25 OFFSET 50');
       });
     });
 
-    describe('toSql and getParams helpers', () => {
-      it('should return SQL via toSql()', () => {
-        const qb = QueryBuilder.from('testdb').whereId(1);
-        expect(qb.toSql()).toBe('SELECT * FROM testdb WHERE id = ?');
+    describe('GROUP BY and HAVING', () => {
+      it('should build GROUP BY', () => {
+        const query = QueryBuilder.from('test_db')
+          .select('t', 'COUNT(*) as cnt')
+          .groupBy('t');
+        const { sql } = query.buildSelect();
+
+        expect(sql).toBe('SELECT t, COUNT(*) as cnt FROM test_db GROUP BY t');
       });
 
-      it('should return params via getParams()', () => {
-        const qb = QueryBuilder.from('testdb').whereId(1).whereType(18);
-        expect(qb.getParams()).toEqual([1, 18]);
+      it('should build GROUP BY with HAVING', () => {
+        const query = QueryBuilder.from('test_db')
+          .select('t', 'COUNT(*) as cnt')
+          .groupBy('t')
+          .having('COUNT(*) > 5');
+        const { sql } = query.buildSelect();
+
+        expect(sql).toBe('SELECT t, COUNT(*) as cnt FROM test_db GROUP BY t HAVING COUNT(*) > 5');
+      });
+    });
+
+    describe('JOIN clauses', () => {
+      it('should build LEFT JOIN', () => {
+        const query = QueryBuilder.from('test_db')
+          .leftJoin('test_db', 'attr', 'attr.up = test_db.id');
+        const { sql } = query.buildSelect();
+
+        expect(sql).toBe('SELECT * FROM test_db LEFT JOIN test_db attr ON attr.up = test_db.id');
+      });
+
+      it('should build JOIN with parameters', () => {
+        const query = QueryBuilder.from('test_db vals')
+          .leftJoin('test_db', 'attr', 'attr.up = vals.id AND attr.t = ?', [20]);
+        const { sql, params } = query.buildSelect();
+
+        expect(sql).toBe('SELECT * FROM test_db vals LEFT JOIN test_db attr ON attr.up = vals.id AND attr.t = ?');
+        expect(params).toEqual([20]);
+      });
+    });
+
+    describe('Complex queries', () => {
+      it('should build Integram-style object query', () => {
+        const query = QueryBuilder.from('my')
+          .select('id', 'val', 'up', 't', 'ord')
+          .whereType(18)
+          .whereParent(0)
+          .orderBy('ord', 'ASC')
+          .limit(100);
+        const { sql, params } = query.buildSelect();
+
+        expect(sql).toBe('SELECT id, val, up, t, ord FROM my WHERE t = ? AND up = ? ORDER BY ord ASC LIMIT 100');
+        expect(params).toEqual([18, 0]);
+      });
+    });
+
+    describe('SQL injection prevention', () => {
+      it('should throw InjectionError for malicious column names', () => {
+        const query = QueryBuilder.from('test_db');
+        expect(() => {
+          query.where('id; DROP TABLE users;--', '=', 1);
+        }).toThrow();
+      });
+
+      it('should throw for injection in ORDER BY', () => {
+        const query = QueryBuilder.from('test_db');
+        expect(() => {
+          query.orderBy('id; DROP TABLE users;--', 'ASC');
+        }).toThrow();
+      });
+    });
+
+    describe('Helper methods', () => {
+      it('toSql should return only SQL', () => {
+        const query = QueryBuilder.from('test_db').whereId(1);
+        const sql = query.toSql();
+
+        expect(sql).toBe('SELECT * FROM test_db WHERE id = ?');
+        expect(typeof sql).toBe('string');
+      });
+
+      it('getParams should return only params', () => {
+        const query = QueryBuilder.from('test_db').whereId(1);
+        const params = query.getParams();
+
+        expect(params).toEqual([1]);
+        expect(Array.isArray(params)).toBe(true);
       });
     });
   });
 
-  describe('Static query builders', () => {
-    describe('buildInsert', () => {
+  describe('Static query builders (PHP function mappings)', () => {
+    describe('buildInsert (maps to PHP Insert())', () => {
       it('should build INSERT query', () => {
-        const { sql, params } = buildInsert('testdb', 1, 0, 18, 'testuser');
+        const { sql, params } = buildInsert('my', 100, 1, 18, 'John Doe');
 
-        expect(sql).toBe('INSERT INTO testdb (up, ord, t, val) VALUES (?, ?, ?, ?)');
-        expect(params).toEqual([1, 0, 18, 'testuser']);
+        expect(sql).toBe('INSERT INTO my (up, ord, t, val) VALUES (?, ?, ?, ?)');
+        expect(params).toEqual([100, 1, 18, 'John Doe']);
+      });
+
+      it('should handle empty value', () => {
+        const { sql, params } = buildInsert('test', 0, 1, 3, '');
+
+        expect(params[3]).toBe('');
       });
     });
 
-    describe('buildUpdateVal', () => {
-      it('should build UPDATE value query', () => {
-        const { sql, params } = buildUpdateVal('testdb', 42, 'newvalue');
+    describe('buildUpdateVal (maps to PHP Update_Val())', () => {
+      it('should build UPDATE val query', () => {
+        const { sql, params } = buildUpdateVal('my', 123, 'Updated Name');
 
-        expect(sql).toBe('UPDATE testdb SET val = ? WHERE id = ?');
-        expect(params).toEqual(['newvalue', 42]);
+        expect(sql).toBe('UPDATE my SET val = ? WHERE id = ?');
+        expect(params).toEqual(['Updated Name', 123]);
       });
     });
 
-    describe('buildUpdateType', () => {
+    describe('buildUpdateType (maps to PHP UpdateTyp())', () => {
       it('should build UPDATE type query', () => {
-        const { sql, params } = buildUpdateType('testdb', 42, 20);
+        const { sql, params } = buildUpdateType('my', 123, 42);
 
-        expect(sql).toBe('UPDATE testdb SET t = ? WHERE id = ?');
-        expect(params).toEqual([20, 42]);
+        expect(sql).toBe('UPDATE my SET t = ? WHERE id = ?');
+        expect(params).toEqual([42, 123]);
       });
     });
 
-    describe('buildDelete', () => {
+    describe('buildDelete (maps to PHP Delete())', () => {
       it('should build DELETE query', () => {
-        const { sql, params } = buildDelete('testdb', 42);
+        const { sql, params } = buildDelete('my', 123);
 
-        expect(sql).toBe('DELETE FROM testdb WHERE id = ?');
-        expect(params).toEqual([42]);
+        expect(sql).toBe('DELETE FROM my WHERE id = ?');
+        expect(params).toEqual([123]);
       });
     });
 
     describe('buildBatchDelete', () => {
-      it('should build batch DELETE query by parent', () => {
-        const { sql, params } = buildBatchDelete('testdb', 10);
+      it('should build DELETE for children', () => {
+        const { sql, params } = buildBatchDelete('my', 100);
 
-        expect(sql).toBe('DELETE FROM testdb WHERE up = ?');
-        expect(params).toEqual([10]);
+        expect(sql).toBe('DELETE FROM my WHERE up = ?');
+        expect(params).toEqual([100]);
       });
     });
 
-    describe('buildCheckOccupied', () => {
-      it('should build occupied check query', () => {
-        const { sql, params } = buildCheckOccupied('testdb', 42);
+    describe('buildCheckOccupied (maps to PHP IsOccupied())', () => {
+      it('should build existence check query', () => {
+        const { sql, params } = buildCheckOccupied('my', 123);
 
-        expect(sql).toBe('SELECT 1 FROM testdb WHERE id = ? LIMIT 1');
-        expect(params).toEqual([42]);
+        expect(sql).toBe('SELECT 1 FROM my WHERE id = ? LIMIT 1');
+        expect(params).toEqual([123]);
       });
     });
 
-    describe('buildGetMaxOrder', () => {
-      it('should build max order query without type', () => {
-        const { sql, params } = buildGetMaxOrder('testdb', 5);
+    describe('buildGetMaxOrder (maps to PHP Get_Ord())', () => {
+      it('should build max order query without type filter', () => {
+        const { sql, params } = buildGetMaxOrder('my', 100);
 
-        expect(sql).toBe('SELECT MAX(ord) + 1 FROM testdb WHERE up = ?');
-        expect(params).toEqual([5]);
+        expect(sql).toBe('SELECT MAX(ord) + 1 FROM my WHERE up = ?');
+        expect(params).toEqual([100]);
       });
 
       it('should build max order query with type filter', () => {
-        const { sql, params } = buildGetMaxOrder('testdb', 5, 18);
+        const { sql, params } = buildGetMaxOrder('my', 100, 18);
 
-        expect(sql).toBe('SELECT MAX(ord) + 1 FROM testdb WHERE up = ? AND t = ?');
-        expect(params).toEqual([5, 18]);
+        expect(sql).toBe('SELECT MAX(ord) + 1 FROM my WHERE up = ? AND t = ?');
+        expect(params).toEqual([100, 18]);
       });
     });
 
-    describe('buildCalcOrder', () => {
-      it('should build calculate order query', () => {
-        const { sql, params } = buildCalcOrder('testdb', 5, 18);
+    describe('buildCalcOrder (maps to PHP Calc_Order())', () => {
+      it('should build next order calculation query', () => {
+        const { sql, params } = buildCalcOrder('my', 100, 18);
 
-        expect(sql).toBe('SELECT COALESCE(MAX(ord), 0) + 1 as next_ord FROM testdb WHERE up = ? AND t = ?');
-        expect(params).toEqual([5, 18]);
+        expect(sql).toBe('SELECT COALESCE(MAX(ord), 0) + 1 as next_ord FROM my WHERE up = ? AND t = ?');
+        expect(params).toEqual([100, 18]);
       });
     });
   });

@@ -3,7 +3,15 @@
   "version": "1.0.0",
   "description": "Integram Standalone Application with Login, Welcome, and Chat",
   "type": "module",
+  "workspaces": [
+    "packages/@integram/*",
+    "services/*"
+  ],
   "scripts": {
+    "test:packages": "npm run test:common && npm run test:database && npm run test:auth",
+    "test:common": "cd packages/@integram/common && npm test",
+    "test:database": "cd packages/@integram/database && npm test",
+    "test:auth": "cd services/auth-service && npm test",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",

@@ -4,6 +4,10 @@
   "type": "module",
   "description": "Shared types, interfaces, utilities, and constants for Integram services",
   "main": "index.js",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
   "exports": {
     ".": "./index.js",
     "./types": "./types/index.js",
@@ -27,6 +31,9 @@
   ],
   "author": "Integram Team",
   "license": "MIT",
+  "devDependencies": {
+    "vitest": "^1.0.0"
+  },
   "engines": {
     "node": ">=18.0.0"
   }
