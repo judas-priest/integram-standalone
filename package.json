@@ -32,6 +32,7 @@
     "html2canvas": "^1.4.1",
     "jspdf": "^3.0.4",
     "marked": "^17.0.1",
+    "mysql2": "^3.17.2",
     "pinia": "^2.3.0",
     "primeicons": "^7.0.0",
     "primevue": "^4.2.6",
