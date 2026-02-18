@@ -3,10 +3,30 @@
  *
  * Handles password hashing, verification, and validation.
  * Maps to PHP functions: Salt(), sha1() password handling
+ *
+ * PHP Salt() implementation:
+ *   function Salt($u, $val) {
+ *     global $z;
+ *     $u = strtoupper($u);
+ *     return SALT."$u$z$val";
+ *   }
+ *
+ * PHP Password hash: sha1(Salt($username, $password))
+ * PHP XSRF: substr(sha1(Salt($token, $database)), 0, 22)
  */
 
 import crypto from 'crypto';
 import { PasswordError, ValidationError } from '@integram/common';
+
+// ============================================================================
+// Constants - These must match PHP defines
+// ============================================================================
+
+/**
+ * Default salt value. In production, this should come from environment.
+ * This must match the SALT constant in PHP's connection.php
+ */
+const DEFAULT_SALT = process.env.INTEGRAM_SALT || '';
 
 // ============================================================================
 // Password Service Class
@@ -24,12 +44,14 @@ export class PasswordService {
    * @param {boolean} [options.requireUppercase=false] - Require uppercase
    * @param {boolean} [options.requireNumber=false] - Require number
    * @param {boolean} [options.requireSpecial=false] - Require special char
+   * @param {string} [options.salt] - Salt prefix for PHP compatibility
    */
   constructor(options = {}) {
     this.minLength = options.minLength || 6;
     this.requireUppercase = options.requireUppercase || false;
     this.requireNumber = options.requireNumber || false;
     this.requireSpecial = options.requireSpecial || false;
+    this.saltPrefix = options.salt || DEFAULT_SALT;
   }
 
   /**
@@ -38,10 +60,11 @@ export class PasswordService {
    *
    * @param {string} username - Username (used as salt)
    * @param {string} password - Plain text password
+   * @param {string} [database] - Database name for salt (defaults to username for simple mode)
    * @returns {string} Hashed password
    */
-  hashLegacy(username, password) {
-    const salted = this.salt(username, password);
+  hashLegacy(username, password, database) {
+    const salted = this.saltPhp(username, password, database || username);
     return crypto.createHash('sha1').update(salted).digest('hex');
   }
 
@@ -51,11 +74,17 @@ export class PasswordService {
    * @param {string} username - Username
    * @param {string} password - Plain text password
    * @param {string} hash - Stored hash
+   * @param {string} [database] - Database name for salt
    * @returns {boolean} True if password matches
    */
-  verifyLegacy(username, password, hash) {
-    const computed = this.hashLegacy(username, password);
-    return crypto.timingSafeEqual(Buffer.from(computed), Buffer.from(hash));
+  verifyLegacy(username, password, hash, database) {
+    const computed = this.hashLegacy(username, password, database);
+    // Use timing-safe comparison only for equal-length hashes
+    try {
+      return crypto.timingSafeEqual(Buffer.from(computed), Buffer.from(hash));
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -98,16 +127,65 @@ export class PasswordService {
   }
 
   /**
-   * Generate a salt string.
-   * Maps to PHP: Salt()
+   * Generate a salt string (simple mode).
+   * Simple mode for backward compatibility.
    *
    * @param {string} username - Username
    * @param {string} value - Value to salt
    * @returns {string} Salted string
    */
   salt(username, value) {
-    // Match PHP Salt() behavior: simple concatenation
+    // Simple concatenation for backward compatibility
     return `${username}:${value}`;
+  }
+
+  /**
+   * Generate a salt string matching PHP Salt() exactly.
+   * Maps to PHP: Salt($u, $val) = SALT + strtoupper($u) + $z + $val
+   *
+   * @param {string} username - Username (will be uppercased)
+   * @param {string} value - Value to salt (password or token)
+   * @param {string} database - Database name ($z in PHP)
+   * @returns {string} Salted string matching PHP behavior
+   */
+  saltPhp(username, value, database) {
+    // Exact PHP behavior: SALT + uppercase(username) + database + value
+    const upperUsername = username.toUpperCase();
+    return `${this.saltPrefix}${upperUsername}${database}${value}`;
+  }
+
+  /**
+   * Generate XSRF token matching PHP xsrf() function.
+   * PHP: function xsrf($a, $b) { return substr(sha1(Salt($a, $b)), 0, 22); }
+   *
+   * @param {string} token - User token
+   * @param {string} database - Database name
+   * @returns {string} XSRF token (22 characters)
+   */
+  generateXsrf(token, database) {
+    // PHP xsrf() calls Salt(token, database)
+    // Salt(token, database) = SALT + uppercase(token) + database + database
+    // Note: In xsrf(), $b is $z (database), so Salt($a, $b) = SALT + uppercase($a) + $z + $b
+    const salted = this.saltPhp(token, database, database);
+    const hash = crypto.createHash('sha1').update(salted).digest('hex');
+    return hash.substring(0, 22);
+  }
+
+  /**
+   * Verify XSRF token.
+   *
+   * @param {string} xsrf - XSRF token to verify
+   * @param {string} token - User token
+   * @param {string} database - Database name
+   * @returns {boolean} True if XSRF is valid
+   */
+  verifyXsrf(xsrf, token, database) {
+    const expected = this.generateXsrf(token, database);
+    try {
+      return crypto.timingSafeEqual(Buffer.from(xsrf), Buffer.from(expected));
+    } catch {
+      return false;
+    }
   }
 
   /**

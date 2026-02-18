@@ -103,6 +103,101 @@ describe('@integram/auth-service PasswordService', () => {
     });
   });
 
+  describe('PHP Salt Compatibility', () => {
+    it('should produce PHP-compatible salt', () => {
+      // PHP: Salt($u, $val) = SALT + strtoupper($u) + $z + $val
+      // With empty SALT prefix (default), Salt('user', 'pass', 'mydb') = 'USERmydbpass'
+      const salted = passwordService.saltPhp('user', 'pass', 'mydb');
+
+      expect(salted).toBe('USERmydbpass');
+    });
+
+    it('should uppercase username in PHP salt', () => {
+      const salted = passwordService.saltPhp('JohnDoe', 'secret', 'testdb');
+
+      expect(salted).toBe('JOHNDOEtestdbsecret');
+    });
+
+    it('should include salt prefix when configured', () => {
+      const service = new PasswordService({ salt: 'MYSALT' });
+      const salted = service.saltPhp('user', 'pass', 'db');
+
+      expect(salted).toBe('MYSALTUSERdbpass');
+    });
+
+    it('should hash legacy password with database', () => {
+      const hash = passwordService.hashLegacy('admin', 'password123', 'mydb');
+
+      expect(hash).toBeDefined();
+      expect(hash).toMatch(/^[a-f0-9]{40}$/);
+    });
+
+    it('should verify legacy password with database', () => {
+      const hash = passwordService.hashLegacy('admin', 'secret', 'testdb');
+      const isValid = passwordService.verifyLegacy('admin', 'secret', hash, 'testdb');
+
+      expect(isValid).toBe(true);
+    });
+
+    it('should reject password with wrong database', () => {
+      const hash = passwordService.hashLegacy('admin', 'secret', 'db1');
+      const isValid = passwordService.verifyLegacy('admin', 'secret', hash, 'db2');
+
+      expect(isValid).toBe(false);
+    });
+  });
+
+  describe('XSRF Token Generation (PHP xsrf() compatibility)', () => {
+    it('should generate 22-char XSRF token', () => {
+      const xsrf = passwordService.generateXsrf('mytokenvalue', 'mydb');
+
+      expect(xsrf).toBeDefined();
+      expect(xsrf.length).toBe(22);
+    });
+
+    it('should produce consistent XSRF for same inputs', () => {
+      const xsrf1 = passwordService.generateXsrf('token123', 'testdb');
+      const xsrf2 = passwordService.generateXsrf('token123', 'testdb');
+
+      expect(xsrf1).toBe(xsrf2);
+    });
+
+    it('should produce different XSRF for different tokens', () => {
+      const xsrf1 = passwordService.generateXsrf('token1', 'db');
+      const xsrf2 = passwordService.generateXsrf('token2', 'db');
+
+      expect(xsrf1).not.toBe(xsrf2);
+    });
+
+    it('should produce different XSRF for different databases', () => {
+      const xsrf1 = passwordService.generateXsrf('token', 'db1');
+      const xsrf2 = passwordService.generateXsrf('token', 'db2');
+
+      expect(xsrf1).not.toBe(xsrf2);
+    });
+
+    it('should verify valid XSRF token', () => {
+      const xsrf = passwordService.generateXsrf('usertoken', 'mydb');
+      const isValid = passwordService.verifyXsrf(xsrf, 'usertoken', 'mydb');
+
+      expect(isValid).toBe(true);
+    });
+
+    it('should reject invalid XSRF token', () => {
+      const xsrf = passwordService.generateXsrf('usertoken', 'mydb');
+      const isValid = passwordService.verifyXsrf('wrongxsrf0000000000000', 'usertoken', 'mydb');
+
+      expect(isValid).toBe(false);
+    });
+
+    it('should reject XSRF with wrong token', () => {
+      const xsrf = passwordService.generateXsrf('token1', 'mydb');
+      const isValid = passwordService.verifyXsrf(xsrf, 'token2', 'mydb');
+
+      expect(isValid).toBe(false);
+    });
+  });
+
   describe('Password Validation', () => {
     describe('Default options', () => {
       it('should accept valid password', () => {
