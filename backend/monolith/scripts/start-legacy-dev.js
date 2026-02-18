@@ -34,7 +34,7 @@ const __dirname = path.dirname(__filename);
 // Configuration
 const PORT = parseInt(process.env.LEGACY_PORT || process.env.PORT || '8081', 10);
 const HOST = process.env.HOST || '0.0.0.0';
-const LEGACY_PATH = path.resolve(__dirname, '../../../integram-server');
+const LEGACY_PATH = path.resolve(__dirname, process.env.LEGACY_PATH || '../../../integram-server');
 
 const app = express();
 
@@ -117,7 +117,55 @@ if (fs.existsSync(LEGACY_PATH)) {
 }
 
 // ============================================================================
-// Import and mount legacy compatibility routes
+// Legacy database routes (/:db, /:db/:page*)
+// Serve HTML pages for database access
+// ============================================================================
+
+// Serve login page for database access (e.g., /my, /demo, /test)
+app.get('/:db', (req, res, next) => {
+  const { db } = req.params;
+
+  // Skip if it looks like a static file or API request
+  if (db.includes('.') || db.startsWith('_') || db === 'api' || db === 'health' || db === 'ws') {
+    return next();
+  }
+
+  // Validate database name pattern (like PHP's DB_MASK)
+  if (!/^[a-z]\w{1,14}$/i.test(db)) {
+    return next();
+  }
+
+  // Check for token cookie - if present, serve main app
+  const token = req.cookies[db];
+
+  if (token) {
+    // User has token, serve main app page
+    const mainPage = path.join(LEGACY_PATH, 'templates/main.html');
+    const appIndex = path.join(LEGACY_PATH, 'app/index.html');
+
+    if (fs.existsSync(mainPage)) {
+      return res.sendFile(mainPage);
+    } else if (fs.existsSync(appIndex)) {
+      return res.sendFile(appIndex);
+    }
+  }
+
+  // No token, serve login page
+  const indexPage = path.join(LEGACY_PATH, 'index.html');
+  const loginPage = path.join(LEGACY_PATH, 'login.html');
+
+  if (fs.existsSync(indexPage)) {
+    return res.sendFile(indexPage);
+  } else if (fs.existsSync(loginPage)) {
+    return res.sendFile(loginPage);
+  }
+
+  // Fallback to 404
+  return res.status(404).send(`Login page not found for database: ${db}`);
+});
+
+// ============================================================================
+// Import and mount legacy compatibility routes (API endpoints)
 // ============================================================================
 
 let legacyRouter = null;
