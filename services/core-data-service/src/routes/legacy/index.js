@@ -1,406 +1,444 @@
 /**
- * @integram/core-data-service - Legacy PHP Routes
+ * @integram/core-data-service - Legacy Action Routes
  *
- * Provides backward-compatible endpoints that exactly match PHP monolith actions.
- * These routes handle legacy action names: _m_set, _m_save, _m_up, _m_ord, _m_id
+ * These routes provide backward compatibility with PHP monolith action endpoints.
+ * URL format: /{database}/{action}/{id}?params
+ *
+ * Actions supported:
+ * - _m_* (Data Manipulation): _m_new, _m_save, _m_del, _m_move, _m_up, _m_ord
+ * - _d_* (Data Definition): _d_new, _d_del, _d_alias, etc.
+ * - metadata, terms, xsrf
  */
 
 import { Router } from 'express';
 
 /**
- * Create legacy PHP-compatible routes.
- * Maps to PHP actions in index.php: _m_set, _m_save, _m_up, _m_ord, _m_id
+ * Create legacy action routes for PHP compatibility.
  *
  * @param {Object} services - Service instances
- * @param {ObjectService} services.objectService - Object service
- * @param {QueryService} services.queryService - Query service
- * @param {TypeService} services.typeService - Type service
- * @param {Object} [options] - Route options
+ * @param {Object} options - Route options
  * @returns {Router} Express router
  */
-export function createLegacyRoutes(services, options = {}) {
+export function createLegacyActionRoutes(services, options = {}) {
   const router = Router();
-  const { objectService, queryService, typeService } = services;
+  const { objectService, queryService, typeService, validationService } = services;
   const logger = options.logger || console;
 
   // ============================================================================
-  // _m_set - Set single attribute value
-  // Maps to PHP: case "_m_set"
+  // Middleware to parse legacy request format
   // ============================================================================
 
-  router.post('/:database/_m_set', async (req, res) => {
-    try {
-      const { database } = req.params;
-      const { id } = req.body;
+  router.use((req, res, next) => {
+    // Merge POST and GET parameters (PHP-like behavior)
+    req.params = { ...req.params };
+    req.data = { ...req.query, ...req.body };
 
-      if (!id) {
-        return res.status(400).json({ error: 'Object ID is required' });
+    // Extract type attributes (t{id}=value)
+    req.attributes = {};
+    for (const [key, value] of Object.entries(req.data)) {
+      if (key.startsWith('t') && /^t\d+$/.test(key)) {
+        const typeId = parseInt(key.substring(1), 10);
+        req.attributes[typeId] = value;
       }
-
-      const objId = parseInt(id, 10);
-      const updates = {};
-
-      // Extract requisite updates (keys that start with 't' followed by number)
-      // PHP: foreach($_REQUEST as $key => $val) if((substr($key, 0, 1) == "t") && ((int)substr($key, 1)!=0))
-      for (const [key, value] of Object.entries(req.body)) {
-        if (key.startsWith('t') && /^\d+$/.test(key.substring(1))) {
-          const typeId = parseInt(key.substring(1), 10);
-          updates[typeId] = value;
-        }
-      }
-
-      if (Object.keys(updates).length === 0) {
-        return res.status(400).json({ error: 'No attribute set' });
-      }
-
-      // Save each requisite
-      for (const [typeId, value] of Object.entries(updates)) {
-        await objectService.saveRequisites(database, objId, { [typeId]: value });
-      }
-
-      logger.debug('_m_set completed', { database, objectId: objId, updates });
-
-      res.json({
-        success: true,
-        id: objId,
-        obj: objId,
-      });
-    } catch (error) {
-      logger.error('_m_set failed', { error: error.message });
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  // ============================================================================
-  // _m_save - Save object with all requisites
-  // Maps to PHP: case "_m_save"
-  // ============================================================================
-
-  router.post('/:database/_m_save', async (req, res) => {
-    try {
-      const { database } = req.params;
-      const { id, copybtn } = req.body;
-
-      if (!id) {
-        return res.status(400).json({ error: 'Object ID is required' });
-      }
-
-      const objId = parseInt(id, 10);
-
-      // Get current object
-      const current = await objectService.getById(database, objId);
-      if (!current) {
-        return res.status(404).json({ error: 'Object not found' });
-      }
-
-      // Extract updates
-      const valueUpdates = {};
-      const requisiteUpdates = {};
-
-      for (const [key, value] of Object.entries(req.body)) {
-        if (key.startsWith('t') && /^\d+$/.test(key.substring(1))) {
-          const typeId = parseInt(key.substring(1), 10);
-
-          // Check if this is the main object value (typeId matches object type)
-          if (typeId === current.typeId) {
-            valueUpdates.value = value;
-          } else {
-            requisiteUpdates[typeId] = value;
-          }
-        }
-      }
-
-      // Handle copy operation
-      if (copybtn) {
-        const copyResult = await objectService.create(database, {
-          typeId: current.typeId,
-          parentId: current.parentId,
-          value: valueUpdates.value || current.value,
-          requisites: requisiteUpdates,
-        });
-
-        return res.json({
-          success: true,
-          id: copyResult.id,
-          copied: true,
-        });
-      }
-
-      // Update object value if changed
-      if (valueUpdates.value !== undefined && valueUpdates.value !== current.value) {
-        await objectService.updateValue(database, objId, valueUpdates.value);
-      }
-
-      // Save requisites
-      if (Object.keys(requisiteUpdates).length > 0) {
-        await objectService.saveRequisites(database, objId, requisiteUpdates);
-      }
-
-      logger.debug('_m_save completed', { database, objectId: objId });
-
-      res.json({
-        success: true,
-        id: objId,
-        saved: true,
-      });
-    } catch (error) {
-      logger.error('_m_save failed', { error: error.message });
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  // ============================================================================
-  // _m_up - Move object up in order
-  // Maps to PHP: case "_m_up"
-  // ============================================================================
-
-  router.post('/:database/_m_up', async (req, res) => {
-    try {
-      const { database } = req.params;
-      const { id } = req.body;
-
-      if (!id) {
-        return res.status(400).json({ error: 'Object ID is required' });
-      }
-
-      const objId = parseInt(id, 10);
-
-      // Get current object and its sibling with lower order
-      const current = await objectService.getById(database, objId);
-      if (!current) {
-        return res.status(404).json({ error: 'Object not found' });
-      }
-
-      // Find sibling with max order less than current
-      const siblings = await objectService.getChildren(database, current.parentId, {
-        typeId: current.typeId,
-      });
-
-      // Sort by order and find the one just before current
-      const sorted = siblings.sort((a, b) => a.order - b.order);
-      const currentIndex = sorted.findIndex(s => s.id === objId);
-
-      if (currentIndex <= 0) {
-        // Already at top
-        return res.json({
-          success: true,
-          id: objId,
-          message: 'Already at top',
-        });
-      }
-
-      const previous = sorted[currentIndex - 1];
-
-      // Swap orders
-      const currentOrder = current.order;
-      const previousOrder = previous.order;
-
-      await objectService.updateOrder(database, objId, previousOrder);
-      await objectService.updateOrder(database, previous.id, currentOrder);
-
-      logger.debug('_m_up completed', { database, objectId: objId });
-
-      res.json({
-        success: true,
-        id: objId,
-        newOrder: previousOrder,
-      });
-    } catch (error) {
-      logger.error('_m_up failed', { error: error.message });
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  // ============================================================================
-  // _m_ord - Set specific order for object
-  // Maps to PHP: case "_m_ord"
-  // ============================================================================
-
-  router.post('/:database/_m_ord', async (req, res) => {
-    try {
-      const { database } = req.params;
-      const { id, order } = req.body;
-
-      if (!id) {
-        return res.status(400).json({ error: 'Object ID is required' });
-      }
-
-      if (order === undefined || !Number.isInteger(parseInt(order, 10)) || parseInt(order, 10) < 1) {
-        return res.status(400).json({ error: 'Invalid order' });
-      }
-
-      const objId = parseInt(id, 10);
-      const newOrder = parseInt(order, 10);
-
-      // Get current object
-      const current = await objectService.getById(database, objId);
-      if (!current) {
-        return res.status(404).json({ error: 'Object not found' });
-      }
-
-      const oldOrder = current.order;
-
-      if (newOrder === oldOrder) {
-        return res.json({
-          success: true,
-          id: objId,
-          order: newOrder,
-        });
-      }
-
-      // Update order - reorder siblings between old and new positions
-      // PHP: UPDATE $z SET ord=(CASE WHEN id=$rid THEN ... ELSE ord+SIGN($ord-$newOrd) END)
-      await objectService.updateOrder(database, objId, newOrder);
-
-      logger.debug('_m_ord completed', { database, objectId: objId, newOrder });
-
-      res.json({
-        success: true,
-        id: objId,
-        order: newOrder,
-      });
-    } catch (error) {
-      logger.error('_m_ord failed', { error: error.message });
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  // ============================================================================
-  // _m_id - Set specific ID for object
-  // Maps to PHP: case "_m_id"
-  // ============================================================================
-
-  router.post('/:database/_m_id', async (req, res) => {
-    try {
-      const { database } = req.params;
-      const { id, new_id } = req.body;
-
-      if (!id) {
-        return res.status(400).json({ error: 'Object ID is required' });
-      }
-
-      if (!new_id || !Number.isInteger(parseInt(new_id, 10)) || parseInt(new_id, 10) < 1) {
-        return res.status(400).json({ error: 'Invalid new ID' });
-      }
-
-      const objId = parseInt(id, 10);
-      const newId = parseInt(new_id, 10);
-
-      // Check if current object exists
-      const current = await objectService.getById(database, objId);
-      if (!current) {
-        return res.status(404).json({ error: 'Object not found' });
-      }
-
-      // Check if new ID is occupied
-      const existing = await objectService.exists(database, newId);
-      if (existing) {
-        return res.status(400).json({ error: 'New ID is occupied' });
-      }
-
-      // Check if this is metadata (up=0)
-      if (current.parentId === 0) {
-        return res.status(400).json({ error: 'Cannot change ID of metadata' });
-      }
-
-      // This operation requires direct SQL updates
-      // PHP does: UPDATE $z SET id=$newId WHERE id=$id
-      //           UPDATE $z SET up=$newId WHERE up=$id
-      //           UPDATE $z SET t=$newId WHERE t=$id
-
-      // For now, return error - this operation is not safe without proper transaction support
-      logger.warn('_m_id requested but not fully implemented', { database, objId, newId });
-
-      res.status(501).json({
-        error: 'ID change operation is not supported in this version',
-        message: 'This operation requires database-level changes that are not safe to perform without proper transaction support',
-      });
-    } catch (error) {
-      logger.error('_m_id failed', { error: error.message });
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  // ============================================================================
-  // Generic action handler for any /{db}/{action} pattern
-  // This catches legacy PHP actions that aren't specific routes
-  // ============================================================================
-
-  router.all('/:database/:action', async (req, res, next) => {
-    const { database, action } = req.params;
-
-    // Skip if this is a numeric ID (handled by other routes)
-    if (/^\d+$/.test(action)) {
-      return next();
-    }
-
-    // Skip if this is already a known action
-    if (['_m_set', '_m_save', '_m_up', '_m_ord', '_m_id'].includes(action)) {
-      return next();
-    }
-
-    // Handle legacy actions from query/body
-    const requestedAction = req.body.action || req.query.action || action;
-
-    switch (requestedAction) {
-      case 'object':
-        // PHP: View/query objects
-        const typeId = req.query.t || req.body.t || req.params[3];
-        if (typeId) {
-          const objects = await queryService.queryObjects(database, {
-            typeId: parseInt(typeId, 10),
-            parentId: req.query.up ? parseInt(req.query.up, 10) : undefined,
-            limit: req.query.LIMIT ? parseInt(req.query.LIMIT, 10) : 20,
-          });
-          return res.json(objects);
-        }
-        break;
-
-      case 'report':
-      case 'smartq':
-        // PHP: Execute report/smart query
-        // TODO: Implement report execution
-        return res.status(501).json({ error: 'Report execution not yet implemented' });
-
-      case 'edit':
-        // PHP: Get edit form data
-        const id = req.query.id || req.body.id;
-        if (id) {
-          const obj = await objectService.getById(database, parseInt(id, 10), {
-            includeRequisites: true,
-          });
-          if (obj) {
-            return res.json(obj);
-          }
-          return res.status(404).json({ error: 'Object not found' });
-        }
-        break;
-
-      case 'edit_types':
-        // PHP: Type editor
-        const types = await typeService.getAllTypes(database);
-        return res.json(types);
-
-      case 'delete':
-        // PHP: Delete object
-        const deleteId = req.body.id || req.query.id;
-        if (deleteId) {
-          await objectService.delete(database, parseInt(deleteId, 10), {
-            cascade: req.query.cascade === '1',
-          });
-          return res.json({ success: true, deleted: deleteId });
-        }
-        return res.status(400).json({ error: 'ID is required for delete' });
-
-      default:
-        // Unknown action - let it fall through
-        break;
     }
 
     next();
   });
 
+  // ============================================================================
+  // Data Manipulation Actions (_m_*)
+  // ============================================================================
+
+  /**
+   * _m_new - Create new object
+   * POST /:database/_m_new/:up
+   * Parameters: up (parent ID), t (type ID), val, t{id}=value (attributes)
+   */
+  router.post('/:database/_m_new/:up?', async (req, res) => {
+    try {
+      const { database, up } = req.params;
+      const parentId = parseInt(up || req.data.up || '0', 10);
+      const typeId = parseInt(req.data.t, 10);
+      const value = req.data.val || '';
+
+      if (!typeId) {
+        return res.status(400).json({ error: 'Type ID (t) is required' });
+      }
+
+      const result = await objectService.create(database, {
+        parentId,
+        typeId,
+        value,
+        requisites: req.attributes,
+      });
+
+      logger.info('Object created via legacy route', { database, id: result.id });
+
+      res.json({
+        status: 'Ok',
+        id: result.id,
+        val: result.value,
+        up: result.parentId,
+        t: result.typeId,
+        ord: result.order,
+      });
+    } catch (error) {
+      logger.error('_m_new failed', { error: error.message });
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  /**
+   * _m_save - Save/update object attributes
+   * POST /:database/_m_save/:id
+   * Parameters: t{id}=value (attributes to update)
+   */
+  router.post('/:database/_m_save/:id', async (req, res) => {
+    try {
+      const { database, id } = req.params;
+      const objectId = parseInt(id, 10);
+
+      // Update value if provided
+      const updates = {};
+      if (req.data.val !== undefined) {
+        updates.value = req.data.val;
+      }
+      if (Object.keys(req.attributes).length > 0) {
+        updates.requisites = req.attributes;
+      }
+
+      const result = await objectService.update(database, objectId, updates);
+
+      logger.info('Object saved via legacy route', { database, id: objectId });
+
+      res.json({
+        status: 'Ok',
+        id: result.id,
+        val: result.value,
+      });
+    } catch (error) {
+      logger.error('_m_save failed', { error: error.message });
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  /**
+   * _m_del - Delete object
+   * POST /:database/_m_del/:id
+   */
+  router.post('/:database/_m_del/:id', async (req, res) => {
+    try {
+      const { database, id } = req.params;
+      const objectId = parseInt(id, 10);
+      const cascade = req.data.cascade === '1' || req.data.cascade === true;
+
+      await objectService.delete(database, objectId, { cascade });
+
+      logger.info('Object deleted via legacy route', { database, id: objectId });
+
+      res.json({ status: 'Ok' });
+    } catch (error) {
+      logger.error('_m_del failed', { error: error.message });
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  /**
+   * _m_move - Move object to new parent
+   * POST /:database/_m_move/:id
+   * Parameters: up (new parent ID)
+   */
+  router.post('/:database/_m_move/:id', async (req, res) => {
+    try {
+      const { database, id } = req.params;
+      const objectId = parseInt(id, 10);
+      const newParentId = parseInt(req.data.up, 10);
+
+      await objectService.moveToParent(database, objectId, newParentId);
+
+      logger.info('Object moved via legacy route', { database, id: objectId, newParentId });
+
+      res.json({ status: 'Ok' });
+    } catch (error) {
+      logger.error('_m_move failed', { error: error.message });
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  /**
+   * _m_up - Move object up in order (decrease order number)
+   * POST /:database/_m_up/:id
+   */
+  router.post('/:database/_m_up/:id', async (req, res) => {
+    try {
+      const { database, id } = req.params;
+      const objectId = parseInt(id, 10);
+
+      // Get current object
+      const obj = await objectService.getById(database, objectId);
+      if (!obj) {
+        return res.status(404).json({ error: 'Object not found' });
+      }
+
+      // Decrease order (move up)
+      const newOrder = Math.max(1, obj.order - 1);
+      await objectService.updateOrder(database, objectId, newOrder);
+
+      logger.info('Object moved up via legacy route', { database, id: objectId });
+
+      res.json({ status: 'Ok', ord: newOrder });
+    } catch (error) {
+      logger.error('_m_up failed', { error: error.message });
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  /**
+   * _m_ord - Set exact order value
+   * POST /:database/_m_ord/:id
+   * Parameters: order (new order value)
+   */
+  router.post('/:database/_m_ord/:id', async (req, res) => {
+    try {
+      const { database, id } = req.params;
+      const objectId = parseInt(id, 10);
+      const order = parseInt(req.data.order || req.data.ord, 10);
+
+      await objectService.updateOrder(database, objectId, order);
+
+      logger.info('Object order set via legacy route', { database, id: objectId, order });
+
+      res.json({ status: 'Ok', ord: order });
+    } catch (error) {
+      logger.error('_m_ord failed', { error: error.message });
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  /**
+   * _m_set - Set object attributes
+   * POST /:database/_m_set/:id
+   * Parameters: t{id}=value (attributes to set)
+   */
+  router.post('/:database/_m_set/:id', async (req, res) => {
+    try {
+      const { database, id } = req.params;
+      const objectId = parseInt(id, 10);
+
+      if (Object.keys(req.attributes).length === 0) {
+        return res.status(400).json({ error: 'No attributes provided' });
+      }
+
+      await objectService.saveRequisites(database, objectId, req.attributes);
+
+      logger.info('Object attributes set via legacy route', { database, id: objectId });
+
+      res.json({ status: 'Ok' });
+    } catch (error) {
+      logger.error('_m_set failed', { error: error.message });
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // Data Definition Actions (_d_*)
+  // ============================================================================
+
+  /**
+   * _d_new / _terms - Create new term/type
+   * POST /:database/_d_new/:parentTypeId
+   */
+  router.post('/:database/_d_new/:parentTypeId?', async (req, res) => {
+    try {
+      const { database, parentTypeId } = req.params;
+      const name = req.data.name || req.data.val || '';
+      const parent = parseInt(parentTypeId || req.data.up || '0', 10);
+
+      const result = await typeService.createType(database, {
+        name,
+        parentId: parent,
+      });
+
+      logger.info('Type created via legacy route', { database, id: result.id });
+
+      res.json({
+        status: 'Ok',
+        id: result.id,
+        name: result.name,
+      });
+    } catch (error) {
+      logger.error('_d_new failed', { error: error.message });
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Alias for _d_new
+  router.post('/:database/_terms', (req, res, next) => {
+    req.params.parentTypeId = req.data.up;
+    router.handle(req, res, next);
+  });
+
+  /**
+   * _d_del / _deleteterm - Delete term/type
+   * POST /:database/_d_del/:typeId
+   */
+  router.post('/:database/_d_del/:typeId', async (req, res) => {
+    try {
+      const { database, typeId } = req.params;
+      const id = parseInt(typeId, 10);
+
+      await typeService.deleteType(database, id);
+
+      logger.info('Type deleted via legacy route', { database, id });
+
+      res.json({ status: 'Ok' });
+    } catch (error) {
+      logger.error('_d_del failed', { error: error.message });
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // Query Actions
+  // ============================================================================
+
+  /**
+   * metadata - Get object metadata
+   * GET /:database/metadata/:id
+   */
+  router.get('/:database/metadata/:id?', async (req, res) => {
+    try {
+      const { database, id } = req.params;
+
+      if (id) {
+        const objectId = parseInt(id, 10);
+        const obj = await objectService.getById(database, objectId, {
+          includeRequisites: true,
+        });
+
+        if (!obj) {
+          return res.status(404).json({ error: 'Object not found' });
+        }
+
+        res.json({
+          id: obj.id,
+          up: obj.parentId,
+          t: obj.typeId,
+          val: obj.value,
+          ord: obj.order,
+          reqs: obj.requisites || {},
+        });
+      } else {
+        // Return schema/types if no ID
+        const types = await typeService.getAllTypes(database);
+        res.json(types);
+      }
+    } catch (error) {
+      logger.error('metadata failed', { error: error.message });
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Also support obj_meta (alias)
+  router.get('/:database/obj_meta/:id', (req, res, next) => {
+    req.url = `/${req.params.database}/metadata/${req.params.id}`;
+    router.handle(req, res, next);
+  });
+
+  /**
+   * terms - List all terms/types
+   * GET /:database/terms
+   */
+  router.get('/:database/terms', async (req, res) => {
+    try {
+      const { database } = req.params;
+      const includeSystem = req.query.system === '1';
+
+      const types = await typeService.getAllTypes(database, { includeSystem });
+
+      // Format as PHP-compatible array
+      const result = types.map(t => ({
+        id: t.id,
+        type: t.typeId,
+        name: t.name,
+        val: t.value,
+      }));
+
+      res.json(result);
+    } catch (error) {
+      logger.error('terms failed', { error: error.message });
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * xsrf - Get XSRF token and user info
+   * GET /:database/xsrf
+   */
+  router.get('/:database/xsrf', async (req, res) => {
+    try {
+      const { database } = req.params;
+      const user = req.user || {};
+
+      // Generate XSRF token (simplified - in production use crypto)
+      const timestamp = Date.now().toString(36);
+      const xsrf = `${timestamp}-${Math.random().toString(36).substring(2, 15)}`.substring(0, 22);
+
+      res.json({
+        _xsrf: xsrf,
+        token: user.token || null,
+        user: user.username || null,
+        role: user.role || null,
+        id: user.userId || null,
+      });
+    } catch (error) {
+      logger.error('xsrf failed', { error: error.message });
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // Object Query Actions
+  // ============================================================================
+
+  /**
+   * object - Get object data
+   * GET /:database/object/:typeId
+   * Parameters: up (parent), LIMIT, F (offset)
+   */
+  router.get('/:database/object/:typeId', async (req, res) => {
+    try {
+      const { database, typeId } = req.params;
+      const type = parseInt(typeId, 10);
+      const parentId = req.query.up !== undefined ? parseInt(req.query.up, 10) : undefined;
+      const limit = req.query.LIMIT ? parseInt(req.query.LIMIT, 10) : 20;
+      const offset = req.query.F ? parseInt(req.query.F, 10) : 0;
+
+      const options = { limit, offset };
+      if (parentId !== undefined) {
+        options.parentId = parentId;
+      }
+
+      const objects = await objectService.getByType(database, type, options);
+
+      res.json(objects.map(obj => ({
+        id: obj.id,
+        val: obj.value,
+        up: obj.parentId,
+        t: obj.typeId,
+        ord: obj.order,
+      })));
+    } catch (error) {
+      logger.error('object query failed', { error: error.message });
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   return router;
 }
 
-export default createLegacyRoutes;
+// ============================================================================
+// Export
+// ============================================================================
+
+export default createLegacyActionRoutes;

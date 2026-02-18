@@ -25,7 +25,7 @@ import { ValidationService } from './services/ValidationService.js';
 import { LegacyFormatTransformer } from './middleware/LegacyFormatTransformer.js';
 import { createV1Routes } from './routes/v1/index.js';
 import { createV2Routes } from './routes/v2/index.js';
-import { createLegacyRoutes } from './routes/legacy/index.js';
+import { createLegacyActionRoutes } from './routes/legacy/index.js';
 
 // ============================================================================
 // Package Information
@@ -95,17 +95,13 @@ export class CoreDataService {
    * @param {Object} [options] - Router options
    * @param {boolean} [options.enableV1=true] - Enable v1 routes
    * @param {boolean} [options.enableV2=true] - Enable v2 routes
+   * @param {boolean} [options.enableLegacy=true] - Enable legacy action routes
    * @returns {express.Router} Express router
    */
   createRouter(options = {}) {
     const router = express.Router();
     const services = this.getServices();
     const routeOptions = { logger: this.logger };
-
-    // Mount legacy PHP action routes (no prefix - direct compatibility)
-    if (options.enableLegacy !== false) {
-      router.use(createLegacyRoutes(services, routeOptions));
-    }
 
     // Mount v1 legacy routes
     if (options.enableV1 !== false) {
@@ -115,6 +111,11 @@ export class CoreDataService {
     // Mount v2 modern routes
     if (options.enableV2 !== false) {
       router.use('/v2', createV2Routes(services, routeOptions));
+    }
+
+    // Mount legacy action routes (PHP-compatible _m_*, _d_* actions)
+    if (options.enableLegacy !== false) {
+      router.use('/', createLegacyActionRoutes(services, routeOptions));
     }
 
     return router;
@@ -252,6 +253,7 @@ export default {
   createApp,
   createV1Routes,
   createV2Routes,
+  createLegacyActionRoutes,
 
   // Package info
   PACKAGE_NAME,
