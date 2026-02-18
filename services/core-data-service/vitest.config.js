@@ -7,6 +7,5 @@ export default defineConfig({
     coverage: {
       reporter: ['text', 'json', 'html'],
     },
-    include: ['**/__tests__/**/*.test.js', 'src/**/__tests__/**/*.test.js'],
   },
 });
