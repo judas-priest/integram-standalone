@@ -1,3 +1,0 @@
-25/12/2025 16:16:50 d@173.249.2.184[0.0013]INSERT INTO ru (up, ord, t, val) VALUES (/*1006*/ 1003, 1, 125, '80cd5268dce5798a48d7eb5f2aa9234a');[Insert: Save token]
-25/12/2025 16:16:50 d@173.249.2.184[0.0009]INSERT INTO ru (up, ord, t, val) VALUES (/*1007*/ 1003, 1, 40, '5bffbd0c3ba69330fa8869');[Insert: Save xsrf]
-25/12/2025 16:16:50 d@173.249.2.184[0.0009]INSERT INTO ru (up, ord, t, val) VALUES (/*1008*/ 1003, 1, 124, '1766679410.0538');[Insert: Save activity time]

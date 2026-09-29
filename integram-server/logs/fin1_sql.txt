@@ -1,8 +1,0 @@
-25/12/2025 16:08:37 admin@146.158.119.74[0.0098]CREATE TABLE fin1 LIKE mo;[Create the initial table]
-25/12/2025 16:08:37 admin@146.158.119.74[0.3746]INSERT INTO fin1 SELECT * FROM mo;[Fill in the table by template]
-25/12/2025 16:08:37 admin@146.158.119.74[0.0022]INSERT INTO fin1 (up, ord, t, val) VALUES (/*17535*/ 1, 0, 18, 'fin1');[Insert: Insert new DB user]
-25/12/2025 16:08:37 admin@146.158.119.74[0.0016]INSERT INTO fin1 (up, ord, t, val) VALUES (/*17536*/ 17535, 1, 156, '20251225');[Insert: Insert date]
-25/12/2025 16:08:37 admin@146.158.119.74[0.0017]INSERT INTO fin1 (up, ord, t, val) VALUES (/*17537*/ 17535, 1, 145, '115');[Insert: Insert Admin role link]
-25/12/2025 16:08:37 admin@146.158.119.74[0.0018]INSERT INTO fin1 (up, ord, t, val) VALUES (/*17538*/ 17535, 1, 125, 'a299638ebd32dc097cb08d54bbdcda74');[Insert: Save token DB]
-25/12/2025 16:08:37 admin@146.158.119.74[0.0018]INSERT INTO fin1 (up, ord, t, val) VALUES (/*17539*/ 17535, 1, 40, 'ce8a47156b7d1257b22f56');[Insert: Save xsrf DB]
-25/12/2025 16:08:37 admin@146.158.119.74[0.0016]INSERT INTO fin1 (up, ord, t, val) VALUES (/*17540*/ 17535, 1, 124, '1766678917.6555');[Insert: Save activity time DB]
