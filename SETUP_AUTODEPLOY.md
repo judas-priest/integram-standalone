@@ -4,7 +4,7 @@
 
 - Сервер: Ubuntu 20.04+ или Debian 11+
 - Root доступ или sudo привилегии
-- IP: 185.128.105.78
+- IP: YOUR_SERVER_IP
 - Открытые порты: 80, 443 (для HTTP/HTTPS)
 
 ## 🚀 Быстрая установка
@@ -12,7 +12,7 @@
 ### Шаг 1: Подключение к серверу
 
 ```bash
-ssh root@185.128.105.78
+ssh root@YOUR_SERVER_IP
 ```
 
 ### Шаг 2: Установка зависимостей
@@ -84,7 +84,7 @@ sudo journalctl -u integram-standalone -f
 sudo wget -O /etc/nginx/sites-available/integram-standalone \
   https://raw.githubusercontent.com/unidel2035/integram-standalone/master/nginx.conf
 
-# Отредактировать server_name (заменить 185.128.105.78 на ваш домен)
+# Отредактировать server_name (заменить YOUR_SERVER_IP на ваш домен)
 sudo nano /etc/nginx/sites-available/integram-standalone
 
 # Создать симлинк
@@ -111,8 +111,8 @@ sudo nano .env
 Пример `.env`:
 ```bash
 # API Configuration
-VITE_API_URL=http://185.128.105.78:3000
-VITE_WS_URL=ws://185.128.105.78:3000
+VITE_API_URL=http://YOUR_SERVER_IP:3000
+VITE_WS_URL=ws://YOUR_SERVER_IP:3000
 VITE_INTEGRAM_URL=https://dronedoc.ru
 
 # Application Settings
@@ -153,12 +153,12 @@ cat ~/.ssh/deploy_key
 
 | Secret Name | Value |
 |-------------|-------|
-| `DEPLOY_HOST` | `185.128.105.78` |
+| `DEPLOY_HOST` | `YOUR_SERVER_IP` |
 | `DEPLOY_USER` | `root` |
 | `DEPLOY_SSH_KEY` | `<содержимое ~/.ssh/deploy_key>` |
 | `DEPLOY_PORT` | `22` |
-| `VITE_API_URL` | `http://185.128.105.78:3000` |
-| `VITE_WS_URL` | `ws://185.128.105.78:3000` |
+| `VITE_API_URL` | `http://YOUR_SERVER_IP:3000` |
+| `VITE_WS_URL` | `ws://YOUR_SERVER_IP:3000` |
 | `VITE_INTEGRAM_URL` | `https://dronedoc.ru` |
 
 ### Шаг 3: Тестирование автодеплоя
@@ -179,7 +179,7 @@ cat ~/.ssh/deploy_key
 
 ```bash
 # Подключиться к серверу
-ssh root@185.128.105.78
+ssh root@YOUR_SERVER_IP
 
 # Запустить deploy script
 cd /var/www/integram-standalone
@@ -309,7 +309,7 @@ sudo logrotate -f /etc/logrotate.d/nginx
 ## 🎉 Готово!
 
 Приложение должно быть доступно по адресу:
-- **HTTP:** http://185.128.105.78
+- **HTTP:** http://YOUR_SERVER_IP
 - **HTTPS:** https://your-domain.com (если настроен SSL)
 
 При любом push в master ветку GitHub Actions автоматически обновит приложение на сервере.

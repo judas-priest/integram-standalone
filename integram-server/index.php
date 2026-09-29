@@ -159,7 +159,7 @@ if(($z === "my") && ((isset($com[2]) ? $com[2] : "") === "register")){ # Registe
         my_die("Запрос не распознан");
 }
 elseif(($z == "my") && !empty($_GET['code'])){
-    # potok4hr@gmail.com
+    # owner@example.com
     $params = array(
     	'client_id'     => G_CLIENT_ID,
     	'client_secret' => G_CLIENT_PK,

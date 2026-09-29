@@ -8,10 +8,10 @@
  * import { SSHTunnelService } from './SSHTunnelService.js'
  *
  * const tunnel = new SSHTunnelService({
- *   host: '185.204.3.24',
+ *   host: 'YOUR_SERVER_IP',
  *   port: 22,
  *   username: 'root',
- *   password: 'kf7xdZ9LU471',
+ *   password: 'CHANGEME_SSH_PASSWORD',
  *   localPort: 9050
  * })
  *
@@ -282,10 +282,10 @@ let defaultTunnelInstance = null
 export function getDefaultTunnel() {
   if (!defaultTunnelInstance) {
     defaultTunnelInstance = new SSHTunnelService({
-      host: process.env.SOCKS_TUNNEL_HOST || '185.204.3.24',
+      host: process.env.SOCKS_TUNNEL_HOST || 'YOUR_SERVER_IP',
       port: parseInt(process.env.SOCKS_TUNNEL_PORT || '22'),
       username: process.env.SOCKS_TUNNEL_USER || 'root',
-      password: process.env.SOCKS_TUNNEL_PASSWORD || 'kf7xdZ9LU471',
+      password: process.env.SOCKS_TUNNEL_PASSWORD || 'CHANGEME_SSH_PASSWORD',
       localPort: parseInt(process.env.SOCKS_TUNNEL_LOCAL_PORT || '9050')
     })
   }

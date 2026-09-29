@@ -1,6 +1,6 @@
 #!/bin/bash
 # Manual Deployment Script for Integram Standalone
-# Запустите этот скрипт на сервере 185.128.105.78
+# Запустите этот скрипт на сервере YOUR_SERVER_IP
 
 set -e
 

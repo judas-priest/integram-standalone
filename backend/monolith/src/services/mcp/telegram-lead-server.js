@@ -33,7 +33,7 @@ import { StringSession } from 'telegram/sessions/index.js';
 
 // Telegram API credentials from environment
 const API_ID = parseInt(process.env.TELEGRAM_API_ID || '35138704', 10);
-const API_HASH = process.env.TELEGRAM_API_HASH || '542f1deaf9babb8c9de2af6dc7d3b9a8';
+const API_HASH = process.env.TELEGRAM_API_HASH || 'CHANGEME_TG_API_HASH';
 
 // In-memory storage for active sessions
 // In production, sessions should be encrypted and stored in database

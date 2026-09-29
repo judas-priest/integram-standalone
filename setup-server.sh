@@ -13,7 +13,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 # Конфигурация
-SERVER_IP="185.128.105.78"
+SERVER_IP="YOUR_SERVER_IP"
 DEPLOY_DIR="/var/www/integram-standalone"
 NODE_VERSION="20"
 

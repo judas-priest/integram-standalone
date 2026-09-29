@@ -1,6 +1,6 @@
 # Integram Server (интеграм.рф)
 
-**Production server:** 185.128.105.78
+**Production server:** YOUR_SERVER_IP
 **Domain:** https://интеграм.рф (xn--80afflxcxn.xn--p1ai)
 **Synced:** 2025-12-26 22:19 MSK
 
@@ -23,7 +23,7 @@ docker-compose up -d
 
 ## Описание
 
-Это производственный код PHP Integram приложения с сервера 185.128.105.78.
+Это производственный код PHP Integram приложения с сервера YOUR_SERVER_IP.
 
 Код синхронизирован с сервера `/var/www/html/` в git репозиторий для централизованного управления версиями.
 
@@ -140,7 +140,7 @@ https://интеграм.рф/app/
 
 ```bash
 # SSH доступ
-ssh root@185.128.105.78
+ssh root@YOUR_SERVER_IP
 
 # Директория приложения
 cd /var/www/html
@@ -163,7 +163,7 @@ git commit -m "Update Integram server code"
 git push origin dev
 
 # 2. Pull на сервере
-ssh root@185.128.105.78
+ssh root@YOUR_SERVER_IP
 cd /var/www/html
 # Скопировать изменённые файлы с локального git репозитория
 # или использовать git clone/pull если на сервере есть git
@@ -180,7 +180,7 @@ systemctl restart httpd
 
 ## Database Credentials
 
-**Production server:** 185.128.105.78
+**Production server:** YOUR_SERVER_IP
 **MySQL:** localhost (internal)
 
 **Test credentials (база my):**
@@ -208,7 +208,7 @@ systemctl reload httpd
 
 **Domain:** интеграм.рф (xn--80afflxcxn.xn--p1ai)
 **Nameservers:** ns1.reg.ru, ns2.reg.ru
-**A Record:** 185.128.105.78
+**A Record:** YOUR_SERVER_IP
 **TTL:** ~3.5 hours
 
 ## Troubleshooting

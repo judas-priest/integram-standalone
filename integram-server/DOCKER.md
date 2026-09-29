@@ -1,6 +1,6 @@
 # Docker Deployment для Integram.рф
 
-**Production код:** 185.128.105.78 (интеграм.рф)
+**Production код:** YOUR_SERVER_IP (интеграм.рф)
 **Синхронизация:** 2025-12-26
 
 ## 🚀 Быстрый запуск
@@ -239,12 +239,12 @@ docker-compose up -d --build
 
 ```bash
 # На production сервере создать дамп
-ssh root@185.128.105.78
+ssh root@YOUR_SERVER_IP
 mysqldump -u root -p integram_db > /tmp/integram_backup.sql
 exit
 
 # Скопировать дамп
-scp root@185.128.105.78:/tmp/integram_backup.sql ./
+scp root@YOUR_SERVER_IP:/tmp/integram_backup.sql ./
 
 # Импортировать в Docker
 docker cp integram_backup.sql integram-mysql:/tmp/

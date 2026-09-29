@@ -15,7 +15,7 @@ class PolzaService {
   constructor() {
     this.client = new OpenAI({
       baseURL: 'https://api.polza.ai/api/v1',
-      apiKey: process.env.POLZA_AI_API_KEY || 'ak_0xCOU-hEsCsImB6r-dg7GChm2LFPQOUL9ROwExY8WBo'
+      apiKey: process.env.POLZA_AI_API_KEY || 'CHANGEME_POLZA_KEY'
     })
     
     this.availableModels = [

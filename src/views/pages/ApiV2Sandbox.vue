@@ -44,7 +44,7 @@
               <input
                 v-model="authForm.serverUrl"
                 type="text"
-                placeholder="https://185.128.105.78"
+                placeholder="https://YOUR_SERVER_IP"
                 readonly
               />
             </div>
@@ -408,7 +408,7 @@ export default {
         serverUrl: window.location.origin,
         database: 'my',
         login: 'admin',
-        password: 'DronedocIntegram2025'
+        password: ''
       },
 
       authState: {
@@ -442,7 +442,7 @@ export default {
 
       request: {
         method: 'GET',
-        url: 'https://185.128.105.78/api/v2',
+        url: 'https://YOUR_SERVER_IP/api/v2',
         body: ''
       },
 

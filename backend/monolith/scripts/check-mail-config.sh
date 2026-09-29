@@ -5,7 +5,7 @@
 
 DOMAIN="example.integram.io"
 MAIL_SERVER="mail.example.integram.io"
-MAIL_IP="185.204.3.24"
+MAIL_IP="YOUR_SERVER_IP"
 
 echo "╔════════════════════════════════════════════════════════╗"
 echo "║   Проверка конфигурации почтового сервера DronDoc      ║"

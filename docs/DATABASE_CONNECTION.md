@@ -188,7 +188,7 @@ INSERT INTO my (id, up, ord, t, val) VALUES
 
 -- Пароль для admin (хэш SHA1 с солью)
 -- Формула: SHA1(SALT + USERNAME_UPPER + DATABASE + PASSWORD)
--- При SALT='DronedocSalt2025': SHA1('DronedocSalt2025ADMINmyadmin')
+-- При SALT='CHANGEME_AUTH_SALT': SHA1('CHANGEME_AUTH_SALTADMINmyadmin')
 INSERT INTO my (id, up, ord, t, val) VALUES
 (1001, 1000, 1, 20, '...');  -- Замените на реальный хэш
 ```
@@ -223,7 +223,7 @@ DB_CHARSET=utf8mb4
 # =============================================================================
 
 # Соль для хэширования паролей (должна совпадать с PHP backend!)
-AUTH_SALT=DronedocSalt2025
+AUTH_SALT=CHANGEME_AUTH_SALT
 
 # Время жизни cookie в секундах (30 дней)
 AUTH_COOKIE_EXPIRE=2592000
@@ -404,7 +404,7 @@ netstat -tlnp | grep 3306
 ```javascript
 // Node.js
 const crypto = require('crypto');
-const salt = 'DronedocSalt2025';
+const salt = 'CHANGEME_AUTH_SALT';
 const username = 'ADMIN'; // uppercase
 const database = 'my';
 const password = 'admin';
@@ -419,7 +419,7 @@ console.log(hash);
 
 ```php
 // PHP
-$salt = 'DronedocSalt2025';
+$salt = 'CHANGEME_AUTH_SALT';
 $username = strtoupper('admin');
 $database = 'my';
 $password = 'admin';

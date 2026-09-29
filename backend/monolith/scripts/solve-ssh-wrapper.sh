@@ -33,4 +33,4 @@ URL=$1
 # Execute SSH command with proper escaping
 # The command runs solve in an interactive bash shell (-i) so that
 # the hive user's environment is properly loaded
-ssh root@193.239.166.31 "su - hive -c 'bash -i -c \"solve $URL\"'"
+ssh root@YOUR_DEV_SERVER_IP "su - hive -c 'bash -i -c \"solve $URL\"'"

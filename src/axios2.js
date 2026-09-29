@@ -54,7 +54,7 @@ const getBaseURL = (targetDatabase = null) => {
   // Используем apiBase если указан, иначе автоопределение по текущему хосту
   // Issue #3924: Changed from sim.sakhwings.ru to dronedoc.ru to avoid CORS errors
   // Issue #INTEGRAM_STANDALONE: Auto-detect current hostname for standalone deployments
-  // This allows the same build to work on any server (185.128.105.78, dronedoc.ru, etc.)
+  // This allows the same build to work on any server (YOUR_SERVER_IP, dronedoc.ru, etc.)
   let baseHost = apiBase
 
   if (!baseHost) {

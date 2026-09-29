@@ -18,7 +18,7 @@ Previously, each HTTP request to `/api/mcp/integram/execute` spawned a **new** M
 ```bash
 # Before session persistence:
 Step 1: Authentication ✓ SUCCESS
-  Token: 0b58e07b1fce676f68bd2807c8d73cc3
+  Token: CHANGEME_EXPIRED_TOKEN
 
 Step 2: Set Context ✓ SUCCESS
 

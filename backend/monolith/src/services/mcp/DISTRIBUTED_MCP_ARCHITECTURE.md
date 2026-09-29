@@ -3,9 +3,9 @@
 ## Overview
 
 This document describes the distributed architecture for Model Context Protocol (MCP) integration where:
-- **Claude CLI** can run on ANY machine (developer laptop, CI/CD, dedicated server like 193.239.166.31, etc.)
+- **Claude CLI** can run on ANY machine (developer laptop, CI/CD, dedicated server like YOUR_DEV_SERVER_IP, etc.)
 - **http-mcp-bridge.js** runs LOCAL to Claude CLI on the SAME machine
-- **Backend orchestrator** runs on a SEPARATE server `dev.drondoc.ru` (which may resolve to 193.239.166.31 internally)
+- **Backend orchestrator** runs on a SEPARATE server `dev.drondoc.ru` (which may resolve to YOUR_DEV_SERVER_IP internally)
 - **Connection**: Claude CLI → local bridge → HTTPS → remote backend
 - MCP tools are accessible via HTTP API from the remote backend
 
@@ -16,17 +16,17 @@ This document describes the distributed architecture for Model Context Protocol 
 **IMPORTANT**: Claude CLI and Backend run on SEPARATE machines, connected via HTTPS:
 
 - **Machine A** (Claude CLI Server): Can be ANY machine with network access to Backend
-  - Examples: developer laptop, CI/CD runner, dedicated server (193.239.166.31), etc.
+  - Examples: developer laptop, CI/CD runner, dedicated server (YOUR_DEV_SERVER_IP), etc.
   - Must have: Node.js, repository codebase with `.claude/mcp.json`, `http-mcp-bridge.js`
 
-- **Machine B** (Backend Server): `dev.drondoc.ru` (may resolve to 193.239.166.31)
+- **Machine B** (Backend Server): `dev.drondoc.ru` (may resolve to YOUR_DEV_SERVER_IP)
   - Must have: Node.js, Express server running, `integram-server.js`
   - Accessible via HTTPS from Machine A
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │  Machine A: Claude CLI Server                                        │
-│  (Can be: laptop, CI/CD, dedicated server like 193.239.166.31, etc.) │
+│  (Can be: laptop, CI/CD, dedicated server like YOUR_DEV_SERVER_IP, etc.) │
 │                                                                       │
 │  ┌────────────────────────────────────────────────────────────────┐ │
 │  │  Claude Code (CLI)                                              │ │
@@ -98,7 +98,7 @@ This document describes the distributed architecture for Model Context Protocol 
 **Location**: Can run on ANY machine with network access to backend:
 - Developer laptop (e.g., MacBook, Windows PC)
 - CI/CD runner (e.g., GitHub Actions, GitLab CI)
-- Dedicated server (e.g., 193.239.166.31 or any other server)
+- Dedicated server (e.g., YOUR_DEV_SERVER_IP or any other server)
 - Cloud VM (e.g., AWS EC2, DigitalOcean Droplet)
 
 **Requirements**:

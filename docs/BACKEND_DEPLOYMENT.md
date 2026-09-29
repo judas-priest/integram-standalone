@@ -316,7 +316,7 @@ DB_PASSWORD=your_secure_password
 DB_CHARSET=utf8mb4
 
 # Аутентификация
-AUTH_SALT=DronedocSalt2025
+AUTH_SALT=CHANGEME_AUTH_SALT
 AUTH_COOKIE_EXPIRE=2592000
 ```
 

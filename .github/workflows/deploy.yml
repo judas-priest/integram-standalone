@@ -25,8 +25,8 @@ jobs:
     - name: Build frontend
       run: npm run build
       env:
-        VITE_API_URL: ${{ secrets.VITE_API_URL || 'http://185.128.105.78:3000' }}
-        VITE_WS_URL: ${{ secrets.VITE_WS_URL || 'ws://185.128.105.78:3000' }}
+        VITE_API_URL: ${{ secrets.VITE_API_URL || 'http://YOUR_SERVER_IP:3000' }}
+        VITE_WS_URL: ${{ secrets.VITE_WS_URL || 'ws://YOUR_SERVER_IP:3000' }}
         VITE_INTEGRAM_URL: ${{ secrets.VITE_INTEGRAM_URL || 'https://dronedoc.ru' }}
 
     - name: Install backend dependencies

@@ -122,7 +122,7 @@ cat > ${OPENDKIM_DIR}/TrustedHosts <<EOF
 # Trusted hosts for OpenDKIM
 127.0.0.1
 localhost
-185.204.3.24
+YOUR_SERVER_IP
 *.${DOMAIN}
 ${DOMAIN}
 EOF

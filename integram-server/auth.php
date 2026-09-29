@@ -89,7 +89,7 @@ class OAuthProvider {
 $config = [
     'yandex' => [
         'client_id' => '9a7b699e9e0f465d85e4329053a71771',
-        'client_secret' => '163784da26084937a87f9abd65fb5f35',
+        'client_secret' => 'CHANGEME_OAUTH_SECRET',
         'redirect_uri' => 'https://app.integram.io/auth.php',
         'base_url' => 'https://oauth.yandex.ru/',
         'token_endpoint' => 'https://oauth.yandex.ru/token',

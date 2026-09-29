@@ -14,7 +14,7 @@ const { IntegramApiService } = require('../../../services/IntegramApiService.cjs
  * Создать сервис для работы с Integram
  */
 function createApiService(req) {
-  const serverUrl = process.env.INTEGRAM_BASE_URL || 'https://185.128.105.78';
+  const serverUrl = process.env.INTEGRAM_BASE_URL || 'https://YOUR_SERVER_IP';
   const database = req.params.database || 'my';
 
   return new IntegramApiService({

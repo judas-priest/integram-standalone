@@ -1,5 +1,5 @@
 # Dockerfile для production PHP Integram сервера (интеграм.рф)
-# Сервер: 185.128.105.78
+# Сервер: YOUR_SERVER_IP
 
 FROM php:8.0-apache
 

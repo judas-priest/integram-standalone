@@ -51,7 +51,7 @@ router.post('/', async (req, res) => {
 
     // Create auth service instance
     // Используем фиксированный URL для старого API Integram
-    const baseURL = process.env.INTEGRAM_BASE_URL || 'https://185.128.105.78';
+    const baseURL = process.env.INTEGRAM_BASE_URL || 'https://YOUR_SERVER_IP';
 
     const authService = new IntegramAuthService({
       baseURL: baseURL

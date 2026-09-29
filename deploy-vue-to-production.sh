@@ -1,11 +1,11 @@
 #!/bin/bash
-# Deploy Vue.js build to production server интеграм.рф (185.128.105.78)
+# Deploy Vue.js build to production server интеграм.рф (YOUR_SERVER_IP)
 # This script syncs the dist/ folder to /var/www/html/app/ on production
 
 set -e
 
 # Production server configuration
-PROD_SERVER="185.128.105.78"
+PROD_SERVER="YOUR_SERVER_IP"
 PROD_USER="root"
 PROD_PATH="/var/www/html/app/"
 LOCAL_DIST="./dist/"

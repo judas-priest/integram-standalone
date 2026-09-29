@@ -40,7 +40,7 @@ const TYPE = {
 };
 
 // Auth configuration
-const AUTH_SALT = process.env.AUTH_SALT || 'DronedocSalt2025';
+const AUTH_SALT = process.env.AUTH_SALT || 'CHANGEME_AUTH_SALT';
 const COOKIES_EXPIRE = parseInt(process.env.AUTH_COOKIE_EXPIRE || '2592000', 10);
 
 // Database pool (lazy initialized)

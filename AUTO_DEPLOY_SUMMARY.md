@@ -121,11 +121,11 @@ return `https://${hostname}/${db}/`
 ### Проверка работы
 
 **Доступ к интерфейсам:**
-- Старый PHP: http://185.128.105.78/
-- Новый Vue.js: http://185.128.105.78/app/welcome
+- Старый PHP: http://YOUR_SERVER_IP/
+- Новый Vue.js: http://YOUR_SERVER_IP/app/welcome
 
 **API запросы:**
-- Автоматически используют http://185.128.105.78/a2025/
+- Автоматически используют http://YOUR_SERVER_IP/a2025/
 - Вместо hardcoded https://dronedoc.ru/a2025/
 
 **Следующий автодеплой:**
@@ -168,6 +168,6 @@ systemctl restart integram-autodeploy.timer
 ---
 
 **Создано**: 2025-12-25  
-**Сервер**: 185.128.105.78  
+**Сервер**: YOUR_SERVER_IP  
 **Интервал**: 30 минут  
 **Статус**: ✅ Работает

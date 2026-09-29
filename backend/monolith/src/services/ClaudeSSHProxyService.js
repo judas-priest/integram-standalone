@@ -13,7 +13,7 @@ const execAsync = promisify(exec);
  * instead of calling Anthropic API directly.
  *
  * Configuration (via environment variables):
- * - CLAUDE_SSH_HOST: Remote server (e.g., root@193.239.166.31)
+ * - CLAUDE_SSH_HOST: Remote server (e.g., root@YOUR_DEV_SERVER_IP)
  * - CLAUDE_SSH_PASSWORD: SSH password (optional, use SSH keys in production)
  * - CLAUDE_SSH_USER: User to run Claude as (e.g., hive)
  * - CLAUDE_SSH_COMMAND: Command to run Claude (e.g., "claude chat")

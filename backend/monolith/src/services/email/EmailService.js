@@ -21,7 +21,7 @@ class EmailService {
     let smtpHost = config.smtpHost || process.env.SMTP_HOST || 'smtp.gmail.com';
     let smtpPort = config.smtpPort || process.env.SMTP_PORT || 587;
 
-    // Check if SMTP_HOST contains port (e.g., "185.204.3.24:587")
+    // Check if SMTP_HOST contains port (e.g., "YOUR_SERVER_IP:587")
     if (typeof smtpHost === 'string' && smtpHost.includes(':')) {
       const parts = smtpHost.split(':');
       smtpHost = parts[0]; // Extract host

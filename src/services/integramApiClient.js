@@ -638,7 +638,7 @@ class IntegramApiClient {
     let cleanBaseURL = this.baseURL.replace(/\/$/, '')
 
     // Check if we're using dronedoc.ru, sakhwings.ru, or интеграм.рф server (same URL structure)
-    // Also treat IP addresses (e.g., 185.128.105.78) the same way (no /api/ prefix)
+    // Also treat IP addresses (e.g., YOUR_SERVER_IP) the same way (no /api/ prefix)
     const isIPAddress = /\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/.test(cleanBaseURL)
     const isDronedoc = cleanBaseURL.includes('dronedoc.ru') ||
                        cleanBaseURL.includes('sakhwings.ru') ||

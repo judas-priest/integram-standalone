@@ -1,6 +1,6 @@
 #!/bin/bash
 # Final deployment command - run this as root user
-# Usage: ssh root@185.128.105.78 "bash /home/hive/integram-standalone/DEPLOY_NOW.sh"
+# Usage: ssh root@YOUR_SERVER_IP "bash /home/hive/integram-standalone/DEPLOY_NOW.sh"
 
 set -e
 
